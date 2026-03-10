@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import uuid
 
 import discord
 from discord.ext import commands
@@ -51,20 +50,14 @@ class ClaudePromptCog(commands.Cog):
 
         project_dir = self.bot.project_manager.get_project_dir(project)
 
-        # Get current feature's session_id (if any)
+        # Get session_id: prefer active feature's session, fall back to project default
         feature = self.bot.feature_manager.get_current_feature(project_dir)
         session_id = feature.session_id if feature else None
-        # If no feature exists, use a default session for the project
         if not session_id:
-            state = __import__("core.state", fromlist=["load_project_state"]).load_project_state(project_dir)
+            from core.state import load_project_state
+            state = load_project_state(project_dir)
             session_id = state.get("default_session_id")
-            if not session_id:
-                session_id = str(uuid.uuid4())
-                state["default_session_id"] = session_id
-                __import__("core.state", fromlist=["save_project_state"]).save_project_state(project_dir, state)
-            resume = True
-        else:
-            resume = True
+        resume = bool(session_id)
 
         # Start streaming with a cancel button
         cancel_fn = lambda: runner.cancel(message.channel.id)
@@ -102,14 +95,26 @@ class ClaudePromptCog(commands.Cog):
                     return
                 elif event.type == "result":
                     print(flush=True)  # final newline after streaming
-                    # Update session_id if returned
-                    if event.session_id and feature:
+                    # Persist the session_id Claude returned
+                    if event.session_id:
                         from core.state import load_project_state, save_project_state
 
                         state = load_project_state(project_dir)
-                        if feature.name in state.get("features", {}):
+                        # Save to feature if active
+                        if feature and feature.name in state.get("features", {}):
                             state["features"][feature.name]["session_id"] = event.session_id
-                            save_project_state(project_dir, state)
+                        # Always save as project default
+                        state["default_session_id"] = event.session_id
+                        save_project_state(project_dir, state)
+
+                    # Show context window usage
+                    if event.input_tokens is not None and event.context_window:
+                        total_tokens = event.input_tokens + (event.output_tokens or 0)
+                        pct = total_tokens / event.context_window * 100
+                        cost_str = f" | ${event.cost_usd:.4f}" if event.cost_usd else ""
+                        await streamer.feed(
+                            f"\n\n---\n*{total_tokens:,} / {event.context_window:,} tokens ({pct:.1f}%){cost_str}*"
+                        )
 
             await streamer.finalize()
 
@@ -125,6 +130,9 @@ class ClaudePromptCog(commands.Cog):
             log.exception("Error during Claude prompt relay")
             await streamer.send_error(str(e))
         finally:
+            # Always clean up the stop button
+            if not streamer._finalized:
+                await streamer.finalize()
             tick_task.cancel()
             try:
                 await tick_task

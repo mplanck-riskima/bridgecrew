@@ -45,6 +45,27 @@ class FeatureManager:
         save_project_state(project_dir, state)
         return Feature.from_dict(name, features[name])
 
+    def complete_feature(self, project_dir: Path, name: str | None = None) -> Feature | None:
+        """Mark a feature as completed. If name is None, complete the current feature."""
+        state = load_project_state(project_dir)
+        features = state.get("features", {})
+
+        if not name:
+            name = state.get("current_feature")
+        if not name or name not in features:
+            return None
+
+        features[name]["status"] = "completed"
+        features[name]["completed_at"] = datetime.now(timezone.utc).isoformat()
+
+        # Clear current feature if it's the one being completed
+        if state.get("current_feature") == name:
+            state["current_feature"] = None
+
+        state["features"] = features
+        save_project_state(project_dir, state)
+        return Feature.from_dict(name, features[name])
+
     def get_current_feature(self, project_dir: Path) -> Feature | None:
         state = load_project_state(project_dir)
         current = state.get("current_feature")

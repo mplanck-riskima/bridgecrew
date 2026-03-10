@@ -12,40 +12,64 @@ A Discord bot that integrates the [Claude CLI](https://claude.com/claude-code) i
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.11+
 - [Claude CLI](https://claude.com/claude-code) installed and available on PATH
 - A Discord bot with a token (see [Discord Developer Portal](https://discord.com/developers/applications))
 
-## Setup
+## Quick Setup
 
-1. **Clone the repo and install dependencies:**
+The setup scripts create a virtual environment and install dependencies automatically.
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+**Linux / macOS / Git Bash:**
 
-2. **Configure environment variables:**
+```bash
+./setup.sh
+```
 
-   ```bash
-   cp .env.example .env
-   ```
+**Windows (PowerShell):**
 
-   Edit `.env` with your values:
+```powershell
+.\setup.ps1
+```
 
-   | Variable | Description |
-   |---|---|
-   | `DISCORD_TOKEN` | Your Discord bot token |
-   | `DISCORD_GUILD_ID` | The server (guild) ID the bot operates in |
-   | `DISCORD_CHANNEL_ID` | The channel ID where project threads are created |
-   | `WORKSPACE_DIR` | Path to the directory containing your projects |
+Both scripts will create a `.env` file from the example template if one doesn't exist. Edit it with your values before running the bot.
 
-   To get your guild and channel IDs, enable **Developer Mode** in Discord settings, then right-click the server/channel and select **Copy ID**.
+### Manual Setup
 
-3. **Run the bot:**
+If you prefer not to use a virtual environment:
 
-   ```bash
-   python bot.py
-   ```
+```bash
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+### Environment Variables
+
+Edit `.env` with your values:
+
+| Variable | Description |
+|---|---|
+| `DISCORD_TOKEN` | Your Discord bot token |
+| `DISCORD_GUILD_ID` | The server (guild) ID the bot operates in |
+| `DISCORD_CHANNEL_ID` | The channel ID where project threads are created |
+| `WORKSPACE_DIR` | Path to the directory containing your projects |
+
+To get your guild and channel IDs, enable **Developer Mode** in Discord settings, then right-click the server/channel and select **Copy ID**.
+
+## Running the Bot
+
+**With the virtual environment (recommended):**
+
+```bash
+./start.sh          # Linux / macOS / Git Bash
+.\start.ps1         # Windows (PowerShell)
+```
+
+**Without:**
+
+```bash
+python bot.py
+```
 
 ## Commands
 
@@ -55,6 +79,7 @@ A Discord bot that integrates the [Claude CLI](https://claude.com/claude-code) i
 | `/sync-projects` | Rescan workspace and sync project threads |
 | `/start-feature <name>` | Start a new feature with a fresh Claude session |
 | `/switch-feature <name>` | Switch to an existing feature |
+| `/complete-feature [name]` | Mark a feature as completed (defaults to active feature) |
 | `/list-features` | Show all features for the current project |
 | `/status` | Show whether Claude is running and the active feature |
 | `/cancel` | Cancel the running Claude process |
@@ -63,15 +88,19 @@ A Discord bot that integrates the [Claude CLI](https://claude.com/claude-code) i
 
 ```
 bot.py                     # Entry point
+setup.sh / setup.ps1       # Environment setup scripts
+start.sh / start.ps1       # Launch scripts
+requirements.txt           # Python dependencies
+.env.example               # Environment variable template
 core/
   ├── claude_runner.py     # Spawns claude CLI, parses stream-json output
   ├── discord_streamer.py  # Streams output to Discord with message splitting
   ├── project_manager.py   # Discovers projects, manages threads
   ├── feature_manager.py   # Feature and session management
   └── state.py             # Atomic JSON persistence
-cogs/
+discord_cogs/
   ├── projects.py          # /projects, /sync-projects
-  ├── features.py          # /start-feature, /switch-feature, /list-features
+  ├── features.py          # /start-feature, /switch-feature, /complete-feature, /list-features
   ├── claude_prompt.py     # @mention handler + streaming
   └── status.py            # /status, /cancel
 models/

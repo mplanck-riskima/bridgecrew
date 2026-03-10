@@ -65,8 +65,15 @@ class ProjectManager:
             return {"error": "Guild not found"}
 
         channel = guild.get_channel(self.channel_id)
+        log.info("Looking for channel ID %s, got: %s (type: %s)", self.channel_id, channel, type(channel).__name__ if channel else "None")
         if not channel or not isinstance(channel, discord.TextChannel):
-            return {"error": "Channel not found or not a text channel"}
+            # Try fetching from API if not in cache
+            try:
+                channel = await guild.fetch_channel(self.channel_id)
+                log.info("Fetched channel from API: %s (type: %s)", channel, type(channel).__name__)
+            except Exception as e:
+                log.error("Failed to fetch channel %s: %s", self.channel_id, e)
+                return {"error": f"Channel not found or not a text channel (ID: {self.channel_id})"}
 
         discovered = self.discover_projects()
         results: dict[str, str] = {}

@@ -2,4 +2,10 @@
 __pycache__/
 *.pyc
 config.json
-features/.active-feature.json
+venv/
+.idea/
+.claude/
+.claude-bot/
+features/
+Plans/
+*.stackdump

@@ -7,3 +7,6 @@ class StreamEvent:
     content: str = ""
     session_id: str | None = None
     cost_usd: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    context_window: int | None = None

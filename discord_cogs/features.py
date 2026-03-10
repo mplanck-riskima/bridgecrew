@@ -55,6 +55,24 @@ class FeaturesCog(commands.Cog):
             f"Session ID: `{feature.session_id[:8]}...`"
         )
 
+    @app_commands.command(name="complete-feature", description="Mark a feature as completed")
+    @app_commands.describe(name="Feature name to complete (defaults to current active feature)")
+    async def complete_feature(self, interaction: discord.Interaction, name: str | None = None) -> None:
+        project, project_dir = self._resolve_project(interaction)
+        if not project:
+            await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
+            return
+
+        feature = self.bot.feature_manager.complete_feature(project_dir, name)
+        if not feature:
+            if name:
+                await interaction.response.send_message(f"Feature `{name}` not found.", ephemeral=True)
+            else:
+                await interaction.response.send_message("No active feature to complete.", ephemeral=True)
+            return
+
+        await interaction.response.send_message(f"Feature **`{feature.name}`** marked as completed.")
+
     @app_commands.command(name="list-features", description="List all features for this project")
     async def list_features(self, interaction: discord.Interaction) -> None:
         project, project_dir = self._resolve_project(interaction)

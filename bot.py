@@ -1,7 +1,5 @@
-import asyncio
 import logging
 import os
-import signal
 import sys
 
 import discord
@@ -12,7 +10,7 @@ from core.claude_runner import ClaudeRunner
 from core.feature_manager import FeatureManager
 from core.project_manager import ProjectManager
 
-load_dotenv()
+load_dotenv(override=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,7 +36,7 @@ if not WORKSPACE_DIR:
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
-intents.members = False
+intents.members = True
 
 
 class ClaudeBot(commands.Bot):
@@ -53,10 +51,10 @@ class ClaudeBot(commands.Bot):
         )
 
     async def setup_hook(self) -> None:
-        await self.load_extension("cogs.projects")
-        await self.load_extension("cogs.features")
-        await self.load_extension("cogs.claude_prompt")
-        await self.load_extension("cogs.status")
+        await self.load_extension("discord_cogs.projects")
+        await self.load_extension("discord_cogs.features")
+        await self.load_extension("discord_cogs.claude_prompt")
+        await self.load_extension("discord_cogs.status")
 
         guild = discord.Object(id=int(GUILD_ID))
         self.tree.copy_global_to(guild=guild)

@@ -108,13 +108,16 @@ class DiscordStreamer:
 
     async def send_error(self, error_text: str) -> None:
         self._finalized = True
+        content = f"**Error:** {error_text}"
+        if len(content) > CHAR_LIMIT:
+            content = content[:CHAR_LIMIT - 3] + "..."
         if self.current_message and not self.current_text:
             try:
-                await self.current_message.edit(content=f"**Error:** {error_text}", view=None)
+                await self.current_message.edit(content=content, view=None)
             except discord.HTTPException:
-                await self.channel.send(f"**Error:** {error_text}")
+                await self.channel.send(content)
         else:
-            await self.channel.send(f"**Error:** {error_text}")
+            await self.channel.send(content)
         self._cleanup_view()
 
     def _cleanup_view(self) -> None:
@@ -130,9 +133,8 @@ class DiscordStreamer:
         self._buffer = ""
         self._buffer_dirty = False
 
-        # Would the combined text exceed the limit?
-        if len(self.current_text) + len(pending) > CHAR_LIMIT:
-            # Split: fill the current message, overflow to a new one
+        # Keep chunking until all pending text is placed
+        while len(self.current_text) + len(pending) > CHAR_LIMIT:
             remaining_space = CHAR_LIMIT - len(self.current_text)
 
             if remaining_space > 0:
@@ -142,32 +144,34 @@ class DiscordStreamer:
                     split_at = remaining_space
 
                 first_part = pending[:split_at]
-                rest = pending[split_at:]
+                pending = pending[split_at:]
             else:
                 first_part = ""
-                rest = pending
 
             # Handle code block continuity
             if first_part:
                 self.current_text += first_part
-                closed_text, reopen_prefix = self._handle_code_block_split(self.current_text)
-                self.current_text = closed_text
-            else:
-                reopen_prefix = ""
-                rest_text = self.current_text
-                closed_text, reopen_prefix = self._handle_code_block_split(rest_text)
-                self.current_text = closed_text
+            closed_text, reopen_prefix = self._handle_code_block_split(self.current_text)
+            self.current_text = closed_text
 
-            # Edit the current message with what fits
-            await self._edit_current(self.current_text)
+            # Edit the current message with what fits, removing the stop button
+            if self.current_message:
+                try:
+                    await self.current_message.edit(content=self.current_text or "\u200b", view=None)
+                except discord.HTTPException as e:
+                    log.warning("Failed to edit message: %s", e)
 
-            # Start a new message for the overflow
-            self.current_text = reopen_prefix + rest
-            self.current_message = await self.channel.send(self.current_text or "\u200b")
+            # Start a new message for the overflow, with the stop button
+            self.current_text = reopen_prefix
+            self.current_message = await self.channel.send(
+                "\u200b",
+                view=self._stop_view if self._stop_view else discord.utils.MISSING,
+            )
             self.all_messages.append(self.current_message)
-        else:
-            self.current_text += pending
-            await self._edit_current(self.current_text)
+
+        # Remaining pending fits in the current message
+        self.current_text += pending
+        await self._edit_current(self.current_text)
 
         self._last_edit = time.monotonic()
 

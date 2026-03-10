@@ -73,14 +73,15 @@ class ClaudeRunner:
             print(f"[claude] Session {session_id} not found on disk, starting fresh.", flush=True)
             session_id = None
 
-        cmd = ["claude", "-p", "--verbose", "--output-format", "stream-json"]
+        cmd = ["claude", "-p", "--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions"]
 
         if resume and session_id:
             cmd.extend(["--resume", session_id, "--fork-session"])
         elif session_id:
             cmd.extend(["--continue", session_id, "--fork-session"])
 
-        cmd.append(prompt)
+        # Use -- to prevent prompt from being parsed as a flag
+        cmd.extend(["--", prompt])
 
         # Build clean environment — remove Claude session markers to avoid nested-session refusal
         _strip_vars = {"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"}
@@ -126,6 +127,7 @@ class ClaudeRunner:
             *cmd,
             cwd=str(project_dir),
             env=env,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -166,44 +168,81 @@ class ClaudeRunner:
                 line = line.strip()
                 if not line:
                     continue
-                event = self._parse_line(line)
-                if event:
+                for event in self._parse_line(line):
                     yield event
 
         # Process any remaining buffer
         if buffer.strip():
-            event = self._parse_line(buffer.strip())
-            if event:
+            for event in self._parse_line(buffer.strip()):
                 yield event
 
-    def _parse_line(self, line: bytes) -> StreamEvent | None:
+    def _parse_line(self, line: bytes) -> list[StreamEvent]:
         try:
             data = json.loads(line)
         except json.JSONDecodeError:
             log.warning("Skipping malformed JSON line: %s", line[:200])
-            return None
+            return []
 
         msg_type = data.get("type", "")
 
-        # Handle assistant message content blocks
+        # Handle assistant messages (CLI stream-json format)
+        if msg_type == "assistant":
+            message = data.get("message", {})
+            content_blocks = message.get("content", [])
+            text_parts = []
+            for block in content_blocks:
+                if block.get("type") == "text":
+                    text_parts.append(block.get("text", ""))
+            if not text_parts:
+                return []
+            full_text = "".join(text_parts)
+            # Split into paragraphs so Discord messages stream naturally
+            events = []
+            paragraphs = full_text.split("\n\n")
+            for i, para in enumerate(paragraphs):
+                if i < len(paragraphs) - 1:
+                    para += "\n\n"
+                if para:
+                    events.append(StreamEvent(type="text", content=para))
+            return events
+
+        # Handle content_block_delta (streaming deltas)
         if msg_type == "content_block_delta":
             delta = data.get("delta", {})
             if delta.get("type") == "text_delta":
-                return StreamEvent(type="text", content=delta.get("text", ""))
+                return [StreamEvent(type="text", content=delta.get("text", ""))]
 
         # Handle result/final message
         if msg_type == "result":
             result = data.get("result", "")
             session_id = data.get("session_id")
             cost = None
-            cost_data = data.get("cost_usd")
+            cost_data = data.get("cost_usd") or data.get("total_cost_usd")
             if cost_data is not None:
                 cost = float(cost_data)
-            return StreamEvent(
+
+            # Extract token usage from modelUsage
+            input_tokens = None
+            output_tokens = None
+            context_window = None
+            model_usage = data.get("modelUsage", {})
+            if model_usage:
+                # Get the first (usually only) model's usage
+                usage = next(iter(model_usage.values()), {})
+                input_tokens = (usage.get("inputTokens", 0)
+                                + usage.get("cacheReadInputTokens", 0)
+                                + usage.get("cacheCreationInputTokens", 0))
+                output_tokens = usage.get("outputTokens", 0)
+                context_window = usage.get("contextWindow")
+
+            return [StreamEvent(
                 type="result",
                 content=result if isinstance(result, str) else "",
                 session_id=session_id,
                 cost_usd=cost,
-            )
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                context_window=context_window,
+            )]
 
-        return None
+        return []
