@@ -20,9 +20,6 @@ class ClaudeRunner:
         proc = self._active.get(thread_id)
         return proc is not None and proc.returncode is None
 
-    def was_cancelled(self, thread_id: int) -> bool:
-        return thread_id in self._cancelled
-
     def cancel(self, thread_id: int) -> bool:
         proc = self._active.get(thread_id)
         if proc and proc.returncode is None:
@@ -70,7 +67,7 @@ class ClaudeRunner:
 
         # Validate session before using it
         if session_id and not self._session_exists(session_id, project_dir):
-            print(f"[claude] Session {session_id} not found on disk, starting fresh.", flush=True)
+            log.info("Session %s not found on disk, starting fresh.", session_id)
             session_id = None
 
         cmd = ["claude", "-p", "--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions"]
@@ -88,7 +85,16 @@ class ClaudeRunner:
         env = {k: v for k, v in os.environ.items() if k not in _strip_vars}
 
         try:
-            proc = await self._launch(cmd, project_dir, env)
+            log.info("Starting: %s", " ".join(cmd))
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=str(project_dir),
+                env=env,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            log.info("Process started (PID %s)", proc.pid)
             self._active[thread_id] = proc
 
             # Start draining stderr immediately
@@ -101,11 +107,11 @@ class ClaudeRunner:
             await proc.wait()
             stderr_chunks = await stderr_task
             if proc.returncode != 0:
-                all_stderr = "".join(stderr_chunks).strip()[:500]
-                yield StreamEvent(
-                    type="error",
-                    content=f"Claude exited with code {proc.returncode}: {all_stderr}" if all_stderr else f"Claude exited with code {proc.returncode}",
-                )
+                stderr_text = "".join(stderr_chunks).strip()[:500]
+                msg = f"Claude exited with code {proc.returncode}"
+                if stderr_text:
+                    msg += f": {stderr_text}"
+                yield StreamEvent(type="error", content=msg)
 
         except FileNotFoundError:
             yield StreamEvent(type="error", content="Claude CLI not found. Make sure `claude` is installed and on PATH.")
@@ -118,22 +124,6 @@ class ClaudeRunner:
             if was_cancelled:
                 yield StreamEvent(type="cancelled")
 
-    async def _launch(
-        self, cmd: list[str], project_dir: Path, env: dict[str, str]
-    ) -> asyncio.subprocess.Process:
-        """Launch a subprocess and return it."""
-        print(f"[claude] Starting: {' '.join(cmd)}", flush=True)
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            cwd=str(project_dir),
-            env=env,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        print(f"[claude] Process started (PID {proc.pid})", flush=True)
-        return proc
-
     async def _drain_stderr(self, proc: asyncio.subprocess.Process) -> list[str]:
         """Read stderr continuously so the pipe buffer never fills up. Returns collected chunks."""
         assert proc.stderr is not None
@@ -144,7 +134,6 @@ class ClaudeRunner:
                 break
             text = chunk.decode(errors="replace")
             chunks.append(text)
-            print(f"[claude stderr] {text}", end="", flush=True)
             log.debug("claude stderr: %s", text.strip())
         return chunks
 
@@ -187,24 +176,16 @@ class ClaudeRunner:
 
         # Handle assistant messages (CLI stream-json format)
         if msg_type == "assistant":
-            message = data.get("message", {})
-            content_blocks = message.get("content", [])
-            text_parts = []
-            for block in content_blocks:
-                if block.get("type") == "text":
-                    text_parts.append(block.get("text", ""))
+            blocks = data.get("message", {}).get("content", [])
+            text_parts = [b.get("text", "") for b in blocks if b.get("type") == "text"]
             if not text_parts:
                 return []
-            full_text = "".join(text_parts)
             # Split into paragraphs so Discord messages stream naturally
-            events = []
-            paragraphs = full_text.split("\n\n")
-            for i, para in enumerate(paragraphs):
-                if i < len(paragraphs) - 1:
-                    para += "\n\n"
-                if para:
-                    events.append(StreamEvent(type="text", content=para))
-            return events
+            paragraphs = "".join(text_parts).split("\n\n")
+            return [
+                StreamEvent(type="text", content=para + ("\n\n" if i < len(paragraphs) - 1 else ""))
+                for i, para in enumerate(paragraphs) if para or i < len(paragraphs) - 1
+            ]
 
         # Handle content_block_delta (streaming deltas)
         if msg_type == "content_block_delta":
@@ -214,35 +195,20 @@ class ClaudeRunner:
 
         # Handle result/final message
         if msg_type == "result":
+            cost_raw = data.get("cost_usd") or data.get("total_cost_usd")
+            usage = next(iter(data.get("modelUsage", {}).values()), {})
             result = data.get("result", "")
-            session_id = data.get("session_id")
-            cost = None
-            cost_data = data.get("cost_usd") or data.get("total_cost_usd")
-            if cost_data is not None:
-                cost = float(cost_data)
-
-            # Extract token usage from modelUsage
-            input_tokens = None
-            output_tokens = None
-            context_window = None
-            model_usage = data.get("modelUsage", {})
-            if model_usage:
-                # Get the first (usually only) model's usage
-                usage = next(iter(model_usage.values()), {})
-                input_tokens = (usage.get("inputTokens", 0)
-                                + usage.get("cacheReadInputTokens", 0)
-                                + usage.get("cacheCreationInputTokens", 0))
-                output_tokens = usage.get("outputTokens", 0)
-                context_window = usage.get("contextWindow")
 
             return [StreamEvent(
                 type="result",
                 content=result if isinstance(result, str) else "",
-                session_id=session_id,
-                cost_usd=cost,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                context_window=context_window,
+                session_id=data.get("session_id"),
+                cost_usd=float(cost_raw) if cost_raw is not None else None,
+                input_tokens=(usage.get("inputTokens", 0)
+                              + usage.get("cacheReadInputTokens", 0)
+                              + usage.get("cacheCreationInputTokens", 0)) if usage else None,
+                output_tokens=usage.get("outputTokens") if usage else None,
+                context_window=usage.get("contextWindow") if usage else None,
             )]
 
         return []
