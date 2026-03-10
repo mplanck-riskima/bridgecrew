@@ -2,6 +2,18 @@
 
 A Discord bot that integrates the [Claude CLI](https://claude.com/claude-code) into Discord. Users can @mention the bot in project threads to send prompts to Claude and receive streamed responses in real time.
 
+## Table of Contents
+
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Creating a Discord Bot](#creating-a-discord-bot)
+- [Quick Setup](#quick-setup)
+  - [Manual Setup](#manual-setup)
+  - [Environment Variables](#environment-variables)
+- [Running the Bot](#running-the-bot)
+- [Commands](#commands)
+- [Project Structure](#project-structure)
+
 ## Features
 
 - **@mention prompting** — Mention the bot in a project thread to send a prompt to Claude
@@ -15,6 +27,28 @@ A Discord bot that integrates the [Claude CLI](https://claude.com/claude-code) i
 - Python 3.11+
 - [Claude CLI](https://claude.com/claude-code) installed and available on PATH
 - A Discord bot with a token (see [Discord Developer Portal](https://discord.com/developers/applications))
+
+## Creating a Discord Bot
+
+If you don't already have a Discord bot, follow these steps:
+
+1. **Create an application** — Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**. Give it a name (e.g. "Claude Bot").
+
+2. **Create the bot user** — In your application, go to the **Bot** tab and click **Add Bot**.
+
+3. **Copy the bot token** — Click **Reset Token** to generate a new token, then copy it. This is your `DISCORD_TOKEN`. Keep it secret.
+
+4. **Enable required intents** — On the same **Bot** tab, scroll down to **Privileged Gateway Intents** and enable:
+   - **Message Content Intent** — Required for reading @mention prompts
+   - **Server Members Intent** — Required for member resolution
+
+5. **Invite the bot to your server** — Go to the **OAuth2** tab, then **URL Generator**. Select the following scopes and permissions:
+   - **Scopes:** `bot`, `applications.commands`
+   - **Bot Permissions:** `Send Messages`, `Send Messages in Threads`, `Create Public Threads`, `Manage Messages`, `Manage Threads`, `Read Message History`
+
+   Copy the generated URL and open it in your browser to invite the bot to your server.
+
+6. **Get your guild and channel IDs** — In Discord, go to **User Settings > Advanced** and enable **Developer Mode**. Then right-click your server name and select **Copy Server ID** (this is `DISCORD_GUILD_ID`). Right-click the channel where you want project threads to be created and select **Copy Channel ID** (this is `DISCORD_CHANNEL_ID`).
 
 ## Quick Setup
 
@@ -54,7 +88,7 @@ Edit `.env` with your values:
 | `DISCORD_CHANNEL_ID` | The channel ID where project threads are created |
 | `WORKSPACE_DIR` | Path to the directory containing your projects |
 
-To get your guild and channel IDs, enable **Developer Mode** in Discord settings, then right-click the server/channel and select **Copy ID**.
+See [Creating a Discord Bot](#creating-a-discord-bot) above for how to obtain your token, guild ID, and channel ID.
 
 ## Running the Bot
 
