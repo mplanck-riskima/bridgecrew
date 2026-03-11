@@ -82,7 +82,17 @@ class ProjectManager:
             if name in self._projects and self._projects[name].thread_id:
                 # Already tracked — verify thread still exists
                 thread = guild.get_thread(self._projects[name].thread_id)
-                if thread:
+                if not thread:
+                    # Cache miss — try fetching from API (handles archived threads)
+                    try:
+                        thread = await bot.fetch_channel(self._projects[name].thread_id)
+                    except discord.NotFound:
+                        thread = None
+                    except discord.HTTPException as e:
+                        log.warning("Failed to fetch thread %s for %s: %s", self._projects[name].thread_id, name, e)
+                        thread = None
+
+                if thread and isinstance(thread, discord.Thread):
                     # Unarchive if needed
                     if thread.archived:
                         try:
@@ -93,7 +103,7 @@ class ProjectManager:
                     else:
                         results[name] = "exists"
                 else:
-                    # Thread was deleted — recreate
+                    # Thread was truly deleted — recreate
                     thread = await self._create_thread(channel, name)
                     if thread:
                         results[name] = "recreated"
