@@ -73,9 +73,9 @@ class ClaudeRunner:
         cmd = ["claude", "-p", "--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions"]
 
         if resume and session_id:
-            cmd.extend(["--resume", session_id, "--fork-session"])
+            cmd.extend(["--resume", session_id])
         elif session_id:
-            cmd.extend(["--continue", session_id, "--fork-session"])
+            cmd.extend(["--continue", session_id])
 
         # Use -- to prevent prompt from being parsed as a flag
         cmd.extend(["--", prompt])
