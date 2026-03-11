@@ -195,6 +195,7 @@ class ClaudeRunner:
 
         # Handle result/final message
         if msg_type == "result":
+            log.info("Result payload: cost_usd=%s, modelUsage=%s", data.get("cost_usd"), data.get("modelUsage"))
             cost_raw = data.get("cost_usd") or data.get("total_cost_usd")
             usage = next(iter(data.get("modelUsage", {}).values()), {})
             result = data.get("result", "")

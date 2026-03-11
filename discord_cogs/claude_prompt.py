@@ -107,13 +107,46 @@ class ClaudePromptCog(commands.Cog):
                         state["default_session_id"] = event.session_id
                         save_project_state(project_dir, state)
 
-                    # Show context window usage
+                    # Show per-prompt usage, context window, and session totals
                     if event.input_tokens is not None and event.context_window:
-                        total_tokens = event.input_tokens + (event.output_tokens or 0)
-                        pct = total_tokens / event.context_window * 100
+                        prompt_in = event.input_tokens
+                        prompt_out = event.output_tokens or 0
+                        prompt_total = prompt_in + prompt_out
+                        context_pct = prompt_in / event.context_window * 100
                         cost_str = f" | ${event.cost_usd:.4f}" if event.cost_usd else ""
+
+                        # Context health indicator
+                        if context_pct >= 85:
+                            indicator = "\U0001f534"   # red circle
+                            warning = "\n**\u26a0\ufe0f Context window critically full — wrap up this feature now!**"
+                        elif context_pct >= 70:
+                            indicator = "\U0001f7e0"   # orange circle
+                            warning = "\n**\u26a0\ufe0f Context window getting large — consider finishing soon.**"
+                        elif context_pct >= 50:
+                            indicator = "\U0001f7e1"   # yellow circle
+                            warning = "\n*Context window over 50% — keep an eye on it.*"
+                        else:
+                            indicator = "\U0001f7e2"   # green circle
+                            warning = ""
+
+                        # Accumulate tokens for the session/feature
+                        totals = self.bot.feature_manager.accumulate_tokens(
+                            project_dir,
+                            input_tokens=prompt_in,
+                            output_tokens=prompt_out,
+                            cost_usd=event.cost_usd or 0.0,
+                            feature_name=feature.name if feature else None,
+                        )
+                        session_total = totals["total_input_tokens"] + totals["total_output_tokens"]
+                        session_label = f"feature `{feature.name}`" if feature else "session"
+                        session_cost = f" | ${totals['total_cost_usd']:.4f}" if totals["total_cost_usd"] else ""
+
                         await streamer.feed(
-                            f"\n\n---\n*{total_tokens:,} / {event.context_window:,} tokens ({pct:.1f}%){cost_str}*"
+                            f"\n\n---\n"
+                            f"*this prompt: {prompt_in:,} in + {prompt_out:,} out = {prompt_total:,} tokens{cost_str}*\n"
+                            f"*{indicator} context: {prompt_in:,} / {event.context_window:,} tokens ({context_pct:.1f}%)*\n"
+                            f"*{session_label} total: {session_total:,} tokens across {totals['prompt_count']} prompt(s){session_cost}*"
+                            f"{warning}"
                         )
 
             await streamer.finalize()

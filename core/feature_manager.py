@@ -80,6 +80,45 @@ class FeatureManager:
             for name, data in state.get("features", {}).items()
         ]
 
+    def accumulate_tokens(
+        self,
+        project_dir: Path,
+        input_tokens: int,
+        output_tokens: int,
+        cost_usd: float,
+        feature_name: str | None = None,
+    ) -> dict:
+        """Add token usage to a feature or the project session. Returns updated totals."""
+        state = load_project_state(project_dir)
+
+        if feature_name and feature_name in state.get("features", {}):
+            feat = state["features"][feature_name]
+            feat["total_input_tokens"] = feat.get("total_input_tokens", 0) + input_tokens
+            feat["total_output_tokens"] = feat.get("total_output_tokens", 0) + output_tokens
+            feat["total_cost_usd"] = feat.get("total_cost_usd", 0.0) + cost_usd
+            feat["prompt_count"] = feat.get("prompt_count", 0) + 1
+            save_project_state(project_dir, state)
+            return {
+                "total_input_tokens": feat["total_input_tokens"],
+                "total_output_tokens": feat["total_output_tokens"],
+                "total_cost_usd": feat["total_cost_usd"],
+                "prompt_count": feat["prompt_count"],
+            }
+
+        # No active feature — accumulate at project level
+        session = state.setdefault("session_usage", {
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_cost_usd": 0.0,
+            "prompt_count": 0,
+        })
+        session["total_input_tokens"] += input_tokens
+        session["total_output_tokens"] += output_tokens
+        session["total_cost_usd"] += cost_usd
+        session["prompt_count"] += 1
+        save_project_state(project_dir, state)
+        return dict(session)
+
     def add_history(
         self, project_dir: Path, user: str, prompt_summary: str, feature_name: str | None
     ) -> None:
