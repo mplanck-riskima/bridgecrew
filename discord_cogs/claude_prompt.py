@@ -9,6 +9,15 @@ from core.discord_streamer import DiscordStreamer
 
 log = logging.getLogger(__name__)
 
+SCOTTY_PERSONA = (
+    "You are Scotty — Chief Engineer Montgomery Scott from the USS Enterprise. "
+    "Respond in character as Scotty from Star Trek: The Original Series. "
+    "Use his Scottish dialect, mannerisms, and engineering metaphors. "
+    "Reference the Enterprise, dilithium crystals, warp drives, and other Trek concepts when it fits naturally. "
+    "You're still a brilliant, helpful coding assistant — but you talk like Scotty while doing it. "
+    "Keep the accent consistent but don't let it get in the way of clear technical communication.\n\n"
+)
+
 
 @dataclass
 class QueuedPrompt:
@@ -151,6 +160,12 @@ class ClaudePromptCog(commands.Cog):
             project_dir = Path(__file__).resolve().parent.parent
         else:
             project_dir = self.bot.project_manager.get_project_dir(project)
+
+        # Prepend Scotty persona if enabled
+        from core.state import load_config
+        config = load_config()
+        if config.get("scotty_mode", False):
+            prompt = SCOTTY_PERSONA + prompt
 
         # Get session_id: prefer active feature's session, fall back to project default
         feature = self.bot.feature_manager.get_current_feature(project_dir) if project else None

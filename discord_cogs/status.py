@@ -65,6 +65,20 @@ class StatusCog(commands.Cog):
 
             await interaction.response.send_message("\n".join(lines))
 
+    @app_commands.command(name="scotty-mode", description="Toggle Scotty personality mode on or off")
+    async def scotty_mode(self, interaction: discord.Interaction) -> None:
+        from core.state import load_config, save_config
+
+        config = load_config()
+        current = config.get("scotty_mode", False)
+        config["scotty_mode"] = not current
+        save_config(config)
+
+        if config["scotty_mode"]:
+            await interaction.response.send_message("Scotty mode **enabled**! Aye, I'll give ye all she's got, Captain!")
+        else:
+            await interaction.response.send_message("Scotty mode **disabled**. Back to normal.")
+
     @app_commands.command(name="cancel", description="Cancel the running Claude process for this project")
     async def cancel(self, interaction: discord.Interaction) -> None:
         channel = interaction.channel
