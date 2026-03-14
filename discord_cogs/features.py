@@ -32,15 +32,15 @@ class FeaturesCog(commands.Cog):
             f"Session ID: `{feature.session_id[:8]}...`"
         )
 
-    @app_commands.command(name="switch-feature", description="Switch to an existing feature")
-    @app_commands.describe(name="Feature name to switch to")
-    async def switch_feature(self, interaction: discord.Interaction, name: str) -> None:
+    @app_commands.command(name="resume-feature", description="Resume an existing or completed feature")
+    @app_commands.describe(name="Feature name to resume")
+    async def resume_feature(self, interaction: discord.Interaction, name: str) -> None:
         project, project_dir = self._resolve_project(interaction)
         if not project:
             await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
             return
 
-        feature = self.bot.feature_manager.switch_feature(project_dir, name)
+        feature = self.bot.feature_manager.resume_feature(project_dir, name)
         if not feature:
             available = self.bot.feature_manager.list_features(project_dir)
             names = ", ".join(f"`{f.name}`" for f in available) or "none"
@@ -51,7 +51,7 @@ class FeaturesCog(commands.Cog):
             return
 
         await interaction.response.send_message(
-            f"Switched to feature **`{feature.name}`**.\n"
+            f"Resumed feature **`{feature.name}`**.\n"
             f"Session ID: `{feature.session_id[:8]}...`"
         )
 
