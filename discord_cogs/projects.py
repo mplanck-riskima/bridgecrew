@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -46,6 +48,44 @@ class ProjectsCog(commands.Cog):
             lines.append(f"- `{name}`: {status}")
 
         await interaction.followup.send("\n".join(lines))
+
+
+    @app_commands.command(name="create-project", description="Create a new project directory with a CLAUDE.md and sync it")
+    @app_commands.describe(
+        name="Project name (used as directory name)",
+        description="High-level description of what this project is about",
+    )
+    async def create_project(self, interaction: discord.Interaction, name: str, description: str) -> None:
+        await interaction.response.defer()
+        pm = self.bot.project_manager
+
+        # Validate name (safe directory name)
+        if not name.replace("-", "").replace("_", "").isalnum():
+            await interaction.followup.send("Project name must be alphanumeric (hyphens and underscores allowed).")
+            return
+
+        project_dir = pm.workspace / name
+        if project_dir.exists():
+            await interaction.followup.send(f"Directory `{name}` already exists. Run `/sync-projects` if it needs a thread.")
+            return
+
+        # Create directory and CLAUDE.md
+        project_dir.mkdir(parents=True)
+        claude_md = project_dir / "CLAUDE.md"
+        claude_md.write_text(f"# {name}\n\n{description}\n", encoding="utf-8")
+
+        # Sync to create the thread
+        results = await pm.sync_projects(self.bot)
+        status = results.get(name, "unknown")
+
+        # Find the thread link
+        project = pm.projects.get(name)
+        if project and project.thread_id:
+            await interaction.followup.send(
+                f"Project `{name}` created ({status}). Head over to <#{project.thread_id}> to start working on it!"
+            )
+        else:
+            await interaction.followup.send(f"Project `{name}` created ({status}), but thread creation may have failed. Try `/sync-projects`.")
 
 
 async def setup(bot: commands.Bot) -> None:

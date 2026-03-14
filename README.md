@@ -16,7 +16,7 @@ A Discord bot that integrates the [Claude CLI](https://claude.com/claude-code) i
 
 ## Features
 
-- **@mention prompting** — Mention the bot in a project thread to send a prompt to Claude
+- **@mention prompting** — Mention the bot in a project thread or the main channel to interact with Claude
 - **Real-time streaming** — Claude's response streams back into Discord with edit-in-place updates
 - **Workspace auto-discovery** — Subdirectories of your workspace are automatically registered as projects, each with its own Discord thread
 - **Feature/session management** — Organize work into features with isolated Claude sessions
@@ -113,10 +113,11 @@ python bot.py
 | Command | Description |
 |---|---|
 | `/projects` | List all discovered projects and their threads |
+| `/create-project <name> <description>` | Create a new project directory with a CLAUDE.md and dedicated thread |
 | `/sync-projects` | Rescan workspace and sync project threads |
 | `/start-feature <name>` | Start a new feature with a fresh Claude session |
-| `/switch-feature <name>` | Switch to an existing feature |
-| `/complete-feature [name]` | Mark a feature as completed (defaults to active feature) |
+| `/resume-feature <name>` | Resume an existing or completed feature |
+| `/complete-feature [name]` | Put a feature away as completed — use `/resume-feature` to pick it back up later |
 | `/list-features` | Show all features for the current project |
 | `/status` | Show whether Claude is running and the active feature |
 | `/cancel` | Cancel the running Claude process |
@@ -137,8 +138,8 @@ core/
   ├── feature_manager.py   # Feature and session management
   └── state.py             # Atomic JSON persistence
 discord_cogs/
-  ├── projects.py          # /projects, /sync-projects
-  ├── features.py          # /start-feature, /switch-feature, /complete-feature, /list-features
+  ├── projects.py          # /projects, /create-project, /sync-projects
+  ├── features.py          # /start-feature, /resume-feature, /complete-feature, /list-features
   ├── claude_prompt.py     # @mention handler + streaming
   └── status.py            # /status, /cancel
 models/
