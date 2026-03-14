@@ -54,16 +54,56 @@ class StatusCog(commands.Cog):
                 await interaction.response.send_message("No projects. Run `/sync-projects` first.")
                 return
 
-            lines = ["**Bot Status:**"]
+            # Collect active and idle projects
+            active_lines = []
+            idle_lines = []
             for name, project in sorted(projects.items()):
                 thread_id = project.thread_id
                 is_busy = self.bot.claude_runner.is_busy(thread_id) if thread_id else False
                 feature = self.bot.feature_manager.get_current_feature(pm.get_project_dir(project))
-                status = "**running**" if is_busy else "idle"
-                feat_str = f" | `{feature.name}`" if feature else ""
-                lines.append(f"- **{name}**: {status}{feat_str}")
+                feat_str = f" | feature: `{feature.name}`" if feature else ""
+                thread_link = f" (<#{thread_id}>)" if thread_id else ""
+
+                if is_busy:
+                    active_lines.append(f"- **{name}**{thread_link}{feat_str}")
+                else:
+                    idle_lines.append(f"- {name}{feat_str}")
+
+            lines = ["**Bot Status:**"]
+            if self.bot._restart_requested:
+                lines.append("\n⚠️ **Restart pending** — waiting for active processes to finish.")
+            if active_lines:
+                lines.append(f"\n🔄 **Active processes ({len(active_lines)}):**")
+                lines.extend(active_lines)
+            else:
+                lines.append("\nNo active processes.")
+
+            if idle_lines:
+                lines.append(f"\n💤 **Idle ({len(idle_lines)}):**")
+                lines.extend(idle_lines)
 
             await interaction.response.send_message("\n".join(lines))
+
+    @app_commands.command(name="restart-scotty", description="Restart the bot process")
+    async def restart_scotty(self, interaction: discord.Interaction) -> None:
+        prompt_cog = self.bot.cogs.get("ClaudePromptCog")
+        active = []
+        if prompt_cog and prompt_cog._workers:
+            active = [t for t in prompt_cog._workers.values() if not t.done()]
+
+        if active:
+            await interaction.response.send_message(
+                f"Restart queued — waiting for {len(active)} active process(es) to finish."
+            )
+        else:
+            await interaction.response.send_message("Restarting... be right back!")
+        await self.bot.request_restart(interaction.channel)
+
+    @app_commands.command(name="force-restart", description="Restart immediately without waiting for active processes")
+    async def force_restart(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_message("Force restarting — killing all active processes!")
+        self.bot._restart_requested = True
+        await self.bot.close()
 
     @app_commands.command(name="scotty-mode", description="Toggle Scotty personality mode on or off")
     async def scotty_mode(self, interaction: discord.Interaction) -> None:

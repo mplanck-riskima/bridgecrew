@@ -65,6 +65,11 @@ class ClaudePromptCog(commands.Cog):
         if self.bot.user not in message.mentions:
             return
 
+        # Reject new prompts while a restart is pending
+        if self.bot._restart_requested:
+            await message.channel.send("Restart in progress — not accepting new prompts.")
+            return
+
         # Strip the bot mention from the prompt
         prompt = self._strip_mention(message.content)
 
@@ -122,7 +127,8 @@ class ClaudePromptCog(commands.Cog):
             await queue.put(queued)
             position = queue.qsize()
             await message.add_reaction("\U0001f4cb")  # clipboard emoji = queued
-            await message.channel.send(f"*Queued (position {position}). I'll get to this after the current prompt finishes.*")
+            preview = prompt[:200] + ("…" if len(prompt) > 200 else "")
+            await message.channel.send(f"*Queued (position {position}):* `{preview}`")
             return
 
         # No worker running — put it in the queue and start the worker
@@ -148,6 +154,8 @@ class ClaudePromptCog(commands.Cog):
             if queue.empty():
                 self._queues.pop(thread_id, None)
                 self._workers.pop(thread_id, None)
+            # Notify the bot that a worker finished
+            await self.bot.notify_worker_done()
 
     async def _process_prompt(self, item: QueuedPrompt) -> None:
         message = item.message

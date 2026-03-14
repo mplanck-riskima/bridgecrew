@@ -1,6 +1,8 @@
+import asyncio
 import logging
 import os
 import sys
+from pathlib import Path
 
 import discord
 from discord.ext import commands
@@ -53,6 +55,9 @@ class ClaudeBot(commands.Bot):
             channel_id=int(CHANNEL_ID),
         )
         self._restart_requested = False
+        self._restart_channel = None  # channel to notify when restart happens
+        # Callbacks invoked when a worker finishes: list of async callables
+        self._on_worker_done: list = []
 
     async def setup_hook(self) -> None:
         await self.load_extension("discord_cogs.projects")
@@ -77,6 +82,17 @@ class ClaudeBot(commands.Bot):
         else:
             log.info("No projects found in workspace")
 
+        # Check if this boot follows a restart
+        restart_marker = Path(__file__).resolve().parent / ".claude-bot" / ".restarting"
+        if restart_marker.exists():
+            restart_marker.unlink()
+            try:
+                main_channel = self.get_channel(self.project_manager.channel_id)
+                if main_channel:
+                    await main_channel.send("I'm back online and ready to go!")
+            except discord.HTTPException:
+                pass
+
     def is_self_project(self, project_dir) -> bool:
         """Check if a project directory is the bot's own codebase."""
         from pathlib import Path
@@ -86,12 +102,50 @@ class ClaudeBot(commands.Bot):
             return False
 
     async def request_restart(self, channel=None) -> None:
-        """Signal the bot to restart after shutdown."""
+        """Signal the bot to restart after all active prompts finish."""
         self._restart_requested = True
-        log.info("Restart requested — shutting down for reboot...")
-        if channel:
-            await channel.send("Restarting to apply changes... be right back.")
+        self._restart_channel = channel
+        log.info("Restart requested — will restart when all workers finish.")
+
+        # Register the restart check as a worker-done callback
+        self._on_worker_done.append(self._check_restart)
+
+        # If nothing is running right now, restart immediately
+        await self._check_restart()
+
+    async def _check_restart(self) -> None:
+        """Called when a worker finishes. If restart is pending and no workers remain, shut down."""
+        if not self._restart_requested:
+            return
+
+        prompt_cog = self.cogs.get("ClaudePromptCog")
+        if prompt_cog and prompt_cog._workers:
+            active = [t for t in prompt_cog._workers.values() if not t.done()]
+            if active:
+                log.info("Restart pending — %d worker(s) still active.", len(active))
+                return
+
+        log.info("All workers drained — restarting now.")
+        # Leave a breadcrumb so the next boot knows it was a restart
+        restart_marker = Path(__file__).resolve().parent / ".claude-bot" / ".restarting"
+        restart_marker.parent.mkdir(exist_ok=True)
+        restart_marker.touch()
+        # Notify the main channel
+        try:
+            main_channel = self.get_channel(self.project_manager.channel_id)
+            if main_channel:
+                await main_channel.send("Restarting... be right back!")
+        except discord.HTTPException:
+            pass
         await self.close()
+
+    async def notify_worker_done(self) -> None:
+        """Called by prompt cog when a worker finishes. Runs all registered callbacks."""
+        for callback in list(self._on_worker_done):
+            try:
+                await callback()
+            except Exception:
+                log.exception("Error in worker-done callback")
 
     async def close(self) -> None:
         log.info("Shutting down — cancelling active Claude processes...")
