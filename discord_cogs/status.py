@@ -102,12 +102,8 @@ class StatusCog(commands.Cog):
         state = load_project_state(project_dir)
 
         if feature and feature.name in state.get("features", {}):
-            feat = state["features"][feature.name]
-            feat["session_id"] = None
-            feat["total_input_tokens"] = 0
-            feat["total_output_tokens"] = 0
-            feat["total_cost_usd"] = 0.0
-            feat["prompt_count"] = 0
+            # Null session to force a fresh context window; keep cumulative token counts
+            state["features"][feature.name]["session_id"] = None
             label = f"feature `{feature.name}`"
         else:
             state["default_session_id"] = None
