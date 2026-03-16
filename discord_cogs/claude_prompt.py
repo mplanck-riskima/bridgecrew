@@ -1,13 +1,50 @@
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
+from pathlib import Path
 
 import discord
 from discord.ext import commands
 
 from core.discord_streamer import DiscordStreamer
 
+SEND_FILE_PATTERN = re.compile(r"\[send-file:\s*(.+?)\]")
+ASK_USER_PATTERN = re.compile(r"\[ask-user:\s*(.+?)\]")
+
 log = logging.getLogger(__name__)
+
+
+class AskUserButton(discord.ui.Button["AskUserView"]):
+    def __init__(self, label: str, index: int) -> None:
+        super().__init__(style=discord.ButtonStyle.primary, label=label, custom_id=f"ask_{index}")
+        self._answer = label
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view: AskUserView = self.view
+        view.answer = self._answer
+        view.event.set()
+        for item in view.children:
+            item.disabled = True
+        await interaction.response.edit_message(
+            content=f"**Claude asked:** {view.question_text}\n> **{self._answer}**",
+            view=view,
+        )
+        view.stop()
+
+
+class AskUserView(discord.ui.View):
+    def __init__(self, question_text: str, options: list[str]) -> None:
+        super().__init__(timeout=300)
+        self.question_text = question_text
+        self.answer: str | None = None
+        self.event = asyncio.Event()
+        for i, opt in enumerate(options[:5]):
+            self.add_item(AskUserButton(opt.strip(), i))
+
+    async def on_timeout(self) -> None:
+        self.answer = None
+        self.event.set()
 
 SCOTTY_PERSONA = (
     "You are Scotty — Chief Engineer Montgomery Scott from the USS Enterprise. "
@@ -135,6 +172,34 @@ class ClaudePromptCog(commands.Cog):
         await queue.put(queued)
         self._workers[thread_id] = asyncio.create_task(self._worker(thread_id))
 
+    async def _collect_answer(self, channel, raw_question: str) -> str:
+        """Parse a question string and show a Discord widget to collect the answer."""
+        parts = [p.strip() for p in raw_question.split("|")]
+        question_text = parts[0]
+        options = parts[1:] if len(parts) > 1 else []
+
+        if options:
+            view = AskUserView(question_text, options)
+            await channel.send(f"**Claude is asking:** {question_text}", view=view)
+            try:
+                await asyncio.wait_for(view.event.wait(), timeout=300)
+            except asyncio.TimeoutError:
+                pass
+            return view.answer or "No response (timed out)"
+        else:
+            await channel.send(
+                f"**Claude is asking:** {question_text}\n*Reply in this channel to answer.*"
+            )
+            try:
+                reply = await self.bot.wait_for(
+                    "message",
+                    check=lambda m: m.channel == channel and not m.author.bot,
+                    timeout=300,
+                )
+                return reply.content
+            except asyncio.TimeoutError:
+                return "No response (timed out)"
+
     async def _worker(self, thread_id: int) -> None:
         """Process queued prompts for a thread, one at a time."""
         queue = self._queues[thread_id]
@@ -225,6 +290,9 @@ class ClaudePromptCog(commands.Cog):
 
         print(f"\n{'='*60}\n[{message.author}] {prompt}\n{'='*60}", flush=True)
 
+        full_response = []
+        last_session_id = session_id
+
         try:
             async for event in runner.run(
                 prompt=prompt,
@@ -235,6 +303,7 @@ class ClaudePromptCog(commands.Cog):
             ):
                 if event.type == "text":
                     print(event.content, end="", flush=True)
+                    full_response.append(event.content)
                     await streamer.feed(event.content)
                 elif event.type == "cancelled":
                     print("\n[Cancelled]", flush=True)
@@ -245,6 +314,8 @@ class ClaudePromptCog(commands.Cog):
                     await streamer.send_error(event.content)
                     return
                 elif event.type == "result":
+                    if event.session_id:
+                        last_session_id = event.session_id
                     print(flush=True)  # final newline after streaming
                     # Persist session_id and model
                     if event.session_id or event.model:
@@ -316,6 +387,144 @@ class ClaudePromptCog(commands.Cog):
                         )
 
             await streamer.finalize()
+
+            # Extract markers from the full response text and clean them from Discord messages
+            response_text = "".join(full_response)
+            pending_files = SEND_FILE_PATTERN.findall(response_text)
+            pending_question = None
+            ask_match = ASK_USER_PATTERN.search(response_text)
+            if ask_match:
+                pending_question = ask_match.group(1)
+
+            # Strip markers from the Discord messages if any were found
+            if pending_files or pending_question:
+                for msg in streamer.all_messages:
+                    try:
+                        if msg.content:
+                            cleaned = SEND_FILE_PATTERN.sub("", msg.content)
+                            cleaned = ASK_USER_PATTERN.sub("", cleaned)
+                            if cleaned != msg.content:
+                                await msg.edit(content=cleaned.strip() or "\u200b")
+                    except discord.HTTPException:
+                        pass
+
+            # Attach any files that were referenced
+            for rel_path in pending_files:
+                rel_path = rel_path.strip()
+                file_path = (project_dir / rel_path).resolve()
+                # Security: must be within project directory
+                try:
+                    file_path.relative_to(project_dir.resolve())
+                except ValueError:
+                    await message.channel.send(f"Skipped `{rel_path}` — outside project directory.")
+                    continue
+                if not file_path.exists() or not file_path.is_file():
+                    await message.channel.send(f"Skipped `{rel_path}` — file not found.")
+                    continue
+                size_mb = file_path.stat().st_size / (1024 * 1024)
+                if size_mb > 25:
+                    await message.channel.send(f"Skipped `{rel_path}` — too large ({size_mb:.1f}MB).")
+                    continue
+                try:
+                    await message.channel.send(
+                        f"📎 `{rel_path}`",
+                        file=discord.File(str(file_path)),
+                    )
+                except discord.HTTPException as e:
+                    await message.channel.send(f"Failed to send `{rel_path}`: {e}")
+
+            # Loop: if Claude asked a question, collect the answer and continue the session
+            while pending_question and last_session_id:
+                answer = await self._collect_answer(message.channel, pending_question)
+                print(f"[Answer] {answer}", flush=True)
+
+                # Run follow-up with the user's answer
+                follow_cancel = lambda: runner.cancel(message.channel.id)
+                follow_streamer = DiscordStreamer(message.channel, on_cancel=follow_cancel)
+                await follow_streamer.start()
+
+                async def follow_tick(s=follow_streamer):
+                    while not s._finalized:
+                        await asyncio.sleep(0.3)
+                        await s.tick()
+
+                follow_tick_task = asyncio.create_task(follow_tick())
+                follow_response = []
+
+                try:
+                    async for event in runner.run(
+                        prompt=answer,
+                        project_dir=project_dir,
+                        thread_id=message.channel.id,
+                        session_id=last_session_id,
+                        resume=False,
+                    ):
+                        if event.type == "text":
+                            print(event.content, end="", flush=True)
+                            follow_response.append(event.content)
+                            await follow_streamer.feed(event.content)
+                        elif event.type == "result":
+                            if event.session_id:
+                                last_session_id = event.session_id
+                                from core.state import load_project_state, save_project_state
+                                state = load_project_state(project_dir)
+                                if feature and feature.name in state.get("features", {}):
+                                    state["features"][feature.name]["session_id"] = event.session_id
+                                state["default_session_id"] = event.session_id
+                                save_project_state(project_dir, state)
+                        elif event.type == "error":
+                            await follow_streamer.send_error(event.content)
+                        elif event.type == "cancelled":
+                            await follow_streamer.send_cancelled()
+
+                    await follow_streamer.finalize()
+
+                    # Extract markers from follow-up response
+                    follow_text = "".join(follow_response)
+                    follow_files = SEND_FILE_PATTERN.findall(follow_text)
+                    pending_question = None
+                    ask_match = ASK_USER_PATTERN.search(follow_text)
+                    if ask_match:
+                        pending_question = ask_match.group(1)
+
+                    # Clean markers from Discord messages
+                    if follow_files or pending_question:
+                        for msg in follow_streamer.all_messages:
+                            try:
+                                if msg.content:
+                                    cleaned = SEND_FILE_PATTERN.sub("", msg.content)
+                                    cleaned = ASK_USER_PATTERN.sub("", cleaned)
+                                    if cleaned != msg.content:
+                                        await msg.edit(content=cleaned.strip() or "\u200b")
+                            except discord.HTTPException:
+                                pass
+
+                    # Send any files
+                    for rel_path in follow_files:
+                        rel_path = rel_path.strip()
+                        file_path = (project_dir / rel_path).resolve()
+                        try:
+                            file_path.relative_to(project_dir.resolve())
+                        except ValueError:
+                            continue
+                        if file_path.exists() and file_path.is_file():
+                            size_mb = file_path.stat().st_size / (1024 * 1024)
+                            if size_mb <= 25:
+                                try:
+                                    await message.channel.send(
+                                        f"📎 `{rel_path}`", file=discord.File(str(file_path))
+                                    )
+                                except discord.HTTPException:
+                                    pass
+
+                finally:
+                    if not follow_streamer._finalized:
+                        await follow_streamer.finalize()
+                    follow_tick_task.cancel()
+                    try:
+                        await follow_tick_task
+                    except asyncio.CancelledError:
+                        pass
 
             # Log to history
             self.bot.feature_manager.add_history(
