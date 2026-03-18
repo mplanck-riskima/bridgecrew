@@ -69,7 +69,12 @@ class StatusCog(commands.Cog):
                 else:
                     idle_lines.append(f"- {name}{feat_str}")
 
+            from core.state import load_config
+            config = load_config()
+            scotty = config.get("scotty_mode", False)
+
             lines = ["**Bot Status:**"]
+            lines.append(f"- Scotty mode: {'**on** 🏴󠁧󠁢󠁳󠁣󠁴󠁿' if scotty else 'off'}")
             if self.bot._restart_requested:
                 lines.append("\n⚠️ **Restart pending** — waiting for active processes to finish.")
             if active_lines:
