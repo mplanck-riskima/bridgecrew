@@ -5,7 +5,7 @@ import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
-from core.system_prompt import build_append_system_prompt, ensure_caches
+from core.system_prompt import ensure_caches, get_system_prompt_file
 from models.session import StreamEvent
 
 log = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ class ClaudeRunner:
         elif session_id:
             cmd.extend(["--continue", session_id])
 
-        cmd.extend(["--append-system-prompt", build_append_system_prompt()])
+        cmd.extend(["--append-system-prompt-file", str(get_system_prompt_file())])
 
         # Use -- to prevent prompt from being parsed as a flag
         cmd.extend(["--", prompt])

@@ -1,12 +1,13 @@
 """
 Manages the bot's system prompt content and on-disk cache files.
 
-All instructional text lives here. Two cache files are written to .claude-bot/:
-  - persona.md      — active persona (scotty or no-persona); written by /scotty-mode
-  - system_prompt.md — static instructions (file sending, ask-user, safety); written at startup
+All instructional text lives here. Three cache files are written to .claude-bot/:
+  - persona.md             — active persona (scotty or no-persona); written by /scotty-mode
+  - system_prompt.md       — static instructions (file sending, ask-user, safety); written at startup
+  - append_system_prompt.md — combined file passed to --append-system-prompt-file; rebuilt on change
 
-Call ensure_caches() at startup to guarantee both files exist.
-Call build_append_system_prompt() to get the full string for --append-system-prompt.
+Call ensure_caches() at startup to guarantee all files exist.
+Call get_system_prompt_file() to get the path for --append-system-prompt-file.
 Call write_persona() to swap the persona (scotty on/off).
 """
 
@@ -17,6 +18,7 @@ _CACHE_DIR = _BOT_DIR / ".claude-bot"
 
 PERSONA_PATH = _CACHE_DIR / "persona.md"
 _STATIC_CACHE_PATH = _CACHE_DIR / "system_prompt.md"
+_COMBINED_PATH = _CACHE_DIR / "append_system_prompt.md"
 
 # ---------------------------------------------------------------------------
 # Persona text
@@ -82,10 +84,18 @@ STATIC_SYSTEM_PROMPT = "\n\n".join([_FILE_SENDING, _ASK_USER, _SAFETY_RULES])
 # Public API
 # ---------------------------------------------------------------------------
 
+def _rebuild_combined() -> None:
+    """Rebuild the combined system prompt file from persona + static instructions."""
+    persona = PERSONA_PATH.read_text(encoding="utf-8").strip() if PERSONA_PATH.exists() else NO_PERSONA
+    static = _STATIC_CACHE_PATH.read_text(encoding="utf-8") if _STATIC_CACHE_PATH.exists() else STATIC_SYSTEM_PROMPT
+    _COMBINED_PATH.write_text("\n\n".join([persona, static]), encoding="utf-8")
+
+
 def write_persona(text: str) -> None:
-    """Write persona text to the cache file."""
+    """Write persona text to the cache file and rebuild the combined prompt."""
     PERSONA_PATH.parent.mkdir(parents=True, exist_ok=True)
     PERSONA_PATH.write_text(text, encoding="utf-8")
+    _rebuild_combined()
 
 
 def ensure_caches() -> None:
@@ -94,15 +104,10 @@ def ensure_caches() -> None:
     if not _STATIC_CACHE_PATH.exists():
         _STATIC_CACHE_PATH.write_text(STATIC_SYSTEM_PROMPT, encoding="utf-8")
     if not PERSONA_PATH.exists():
-        write_persona(NO_PERSONA)
+        PERSONA_PATH.write_text(NO_PERSONA, encoding="utf-8")
+    _rebuild_combined()
 
 
-def build_append_system_prompt() -> str:
-    """Return the full --append-system-prompt string (persona + static instructions)."""
-    if PERSONA_PATH.exists():
-        persona = PERSONA_PATH.read_text(encoding="utf-8").strip()
-    else:
-        persona = NO_PERSONA
-
-    static = _STATIC_CACHE_PATH.read_text(encoding="utf-8")
-    return "\n\n".join([persona, static])
+def get_system_prompt_file() -> Path:
+    """Return the path to the combined system prompt file for --append-system-prompt-file."""
+    return _COMBINED_PATH
