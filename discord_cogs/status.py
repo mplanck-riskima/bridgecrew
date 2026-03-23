@@ -2,6 +2,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from discord_cogs import captains_only
+
 
 def _fmt_elapsed(seconds: float) -> str:
     s = int(seconds)
@@ -15,6 +17,7 @@ class StatusCog(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="status", description="Show current status for this project")
+    @captains_only()
     async def status(self, interaction: discord.Interaction) -> None:
         channel = interaction.channel
 
@@ -114,6 +117,7 @@ class StatusCog(commands.Cog):
             await interaction.response.send_message("\n".join(lines))
 
     @app_commands.command(name="restart-scotty", description="Restart the bot process")
+    @captains_only()
     async def restart_scotty(self, interaction: discord.Interaction) -> None:
         prompt_cog = self.bot.cogs.get("ClaudePromptCog")
         active = []
@@ -129,12 +133,14 @@ class StatusCog(commands.Cog):
         await self.bot.request_restart(interaction.channel)
 
     @app_commands.command(name="force-restart", description="Restart immediately without waiting for active processes")
+    @captains_only()
     async def force_restart(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message("Force restarting — killing all active processes!")
         self.bot._restart_requested = True
         await self.bot.close()
 
     @app_commands.command(name="scotty-mode", description="Toggle Scotty personality mode on or off")
+    @captains_only()
     async def scotty_mode(self, interaction: discord.Interaction) -> None:
         from core.state import load_config, save_config
         from core.system_prompt import NO_PERSONA, SCOTTY_PERSONA, write_persona
@@ -152,6 +158,7 @@ class StatusCog(commands.Cog):
             await interaction.response.send_message("Scotty mode **disabled**. Back to normal.")
 
     @app_commands.command(name="cancel", description="Cancel the running Claude process for this project")
+    @captains_only()
     async def cancel(self, interaction: discord.Interaction) -> None:
         channel = interaction.channel
         if not isinstance(channel, discord.Thread):
@@ -164,6 +171,7 @@ class StatusCog(commands.Cog):
             await interaction.response.send_message("No Claude process is running.", ephemeral=True)
 
 
+    @captains_only()
     @app_commands.command(name="model", description="Set the Claude model for this project")
     @app_commands.describe(model="Model to use")
     @app_commands.choices(model=[
@@ -192,6 +200,7 @@ class StatusCog(commands.Cog):
         await interaction.response.send_message(f"Model set to **{model.name}** (`{model.value}`) for `{project.name}`.")
 
     @app_commands.command(name="reset-context", description="Reset the Claude session to start with a fresh context window")
+    @captains_only()
     async def reset_context(self, interaction: discord.Interaction) -> None:
         channel = interaction.channel
         if not isinstance(channel, discord.Thread):
