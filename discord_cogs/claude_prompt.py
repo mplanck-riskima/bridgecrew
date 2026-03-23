@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 
 from core.discord_streamer import DiscordStreamer
+from discord_cogs import has_captain_role, REQUIRED_ROLE
 
 SEND_FILE_PATTERN = re.compile(r"\[send-file:\s*(.+?)\]")
 ASK_USER_PATTERN = re.compile(r"\[ask-user:\s*(.+?)\]")
@@ -170,8 +171,11 @@ class ClaudePromptCog(commands.Cog):
             prompt = prompt.replace(mention_str, "")
         return prompt.strip()
 
-    def _build_project_context(self) -> str:
-        """Build a context string listing all known projects and their thread IDs."""
+    def _build_project_context(self, include_paths: bool = False) -> str:
+        """Build a context string listing all known projects and their thread IDs.
+
+        If include_paths is True, also includes full filesystem paths for cross-project access.
+        """
         pm = self.bot.project_manager
         projects = pm.projects
         if not projects:
@@ -181,7 +185,19 @@ class ClaudePromptCog(commands.Cog):
         for name, project in sorted(projects.items()):
             feature = self.bot.feature_manager.get_current_feature(pm.get_project_dir(project))
             feat_str = f" (active feature: {feature.name})" if feature else ""
-            lines.append(f"- {name}: thread <#{project.thread_id}>{feat_str}")
+            path_str = f" — path: `{pm.get_project_dir(project)}`" if include_paths else ""
+            lines.append(f"- {name}: thread <#{project.thread_id}>{feat_str}{path_str}")
+
+        if include_paths:
+            lines.append(f"\nWorkspace root: `{self.bot.workspace_dir}`")
+            global_claude = Path.home() / ".claude"
+            lines.append(f"Global Claude config directory: `{global_claude}`")
+            lines.append(
+                "You have permission to access any of these project directories and the global Claude config. "
+                "You must NEVER access or modify any files outside of these listed project directories and "
+                "the global Claude config directory — no exceptions."
+            )
+
         return "\n".join(lines)
 
     @commands.Cog.listener()
@@ -192,6 +208,11 @@ class ClaudePromptCog(commands.Cog):
 
         # Must mention the bot
         if self.bot.user not in message.mentions:
+            return
+
+        # Role gate: only captains can prompt the bot
+        if not has_captain_role(message.author):
+            await message.add_reaction("\U0001f512")  # lock emoji
             return
 
         # Warn if a restart is pending, but still accept the prompt (it will delay the restart)
@@ -214,7 +235,7 @@ class ClaudePromptCog(commands.Cog):
                 return
 
             # Augment prompt with project context so Claude can suggest the right thread
-            project_context = self._build_project_context()
+            project_context = self._build_project_context(include_paths=True)
             augmented_prompt = prompt + project_context
 
             channel_id = message.channel.id
@@ -416,10 +437,10 @@ class ClaudePromptCog(commands.Cog):
                             indicator = "\U0001f7e2"  # green
                             warning = ""
 
-                        cost_str = f" · ${event.cost_usd:.4f}" if event.cost_usd else ""
+                        session_id_str = f" · `{last_session_id[:8]}`" if last_session_id else ""
                         model_str = f" · `{event.model}`" if event.model else ""
-                        session_id_str = f" · session `{last_session_id[:8]}`" if last_session_id else ""
-                        context_line = f"*{indicator} {context_fill:,} / {context_window:,} tokens ({context_pct:.1f}%){cost_str}{model_str}{session_id_str}*"
+
+                        context_line = f"*{indicator} {context_fill:,} / {context_window:,} tokens ({context_pct:.1f}%){session_id_str}{model_str}*"
 
                         # Accumulate cost for the session/feature
                         totals = self.bot.feature_manager.accumulate_tokens(
@@ -432,7 +453,7 @@ class ClaudePromptCog(commands.Cog):
                         session_label = f"feature `{feature.name}`" if feature else "session"
                         session_line = ""
                         if totals["total_cost_usd"]:
-                            session_line = f"\n*{session_label}: ${totals['total_cost_usd']:.4f} across {totals['prompt_count']} prompt(s)*"
+                            session_line = f"\n*{session_label}: ${totals['total_cost_usd']:.4f} — {totals['prompt_count']} prompts*"
 
                         await streamer.feed(
                             f"\n\n---\n"
@@ -483,11 +504,22 @@ class ClaudePromptCog(commands.Cog):
             for rel_path in pending_files:
                 rel_path = rel_path.strip()
                 file_path = (run_dir / rel_path).resolve()
-                # Security: must be within project directory
+                # Security: must be within project directory or workspace
+                workspace = self.bot.workspace_dir.resolve()
+                allowed = False
                 try:
                     file_path.relative_to(project_dir.resolve())
+                    allowed = True
                 except ValueError:
-                    await channel.send(f"Skipped `{rel_path}` — outside project directory.")
+                    pass
+                if not allowed:
+                    try:
+                        file_path.relative_to(workspace)
+                        allowed = True
+                    except ValueError:
+                        pass
+                if not allowed:
+                    await channel.send(f"Skipped `{rel_path}` — outside workspace directory.")
                     continue
                 if not file_path.exists() or not file_path.is_file():
                     await channel.send(f"Skipped `{rel_path}` — file not found.")
@@ -627,6 +659,12 @@ class ClaudePromptCog(commands.Cog):
                 diff_snapshot = (head_out.decode().strip(), diff_out.decode())
             except Exception:
                 pass
+
+        # Augment project thread prompts with cross-project workspace context
+        if project is not None:
+            workspace_context = self._build_project_context(include_paths=True)
+            if workspace_context:
+                prompt = prompt + workspace_context
 
         print(f"\n{'='*60}\n[{message.author}] {prompt}\n{'='*60}", flush=True)
 
