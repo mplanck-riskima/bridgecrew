@@ -337,9 +337,10 @@ class ClaudePromptCog(commands.Cog):
             await self.bot.notify_worker_done()
 
     async def _run_stream(self, *, channel, runner, prompt, project_dir, run_dir, thread_id,
-                          session_id, resume, feature, model=None,
-                          guild=None, project_name=None) -> tuple[str | None, str | None]:
-        """Run Claude and stream to Discord. Returns (last_session_id, pending_question).
+                          session_id, resume, feature, persona_content="",
+                          myvillage_project_id="", model=None,
+                          guild=None, project_name=None) -> tuple[str | None, str | None, str]:
+        """Run Claude and stream to Discord. Returns (last_session_id, pending_question, response_text).
 
         project_dir: project root — used for state, token tracking, file security
         run_dir: Claude's working directory — may be a subdirectory when a feature targets one
@@ -361,6 +362,9 @@ class ClaudePromptCog(commands.Cog):
         full_response = []
         last_session_id = session_id
 
+        import datetime as _dt
+        _started_at = _dt.datetime.now(_dt.timezone.utc)
+
         try:
             async for event in runner.run(
                 prompt=prompt,
@@ -368,6 +372,7 @@ class ClaudePromptCog(commands.Cog):
                 thread_id=thread_id,
                 session_id=session_id,
                 resume=resume,
+                persona_content=persona_content,
                 model=model,
             ):
                 if event.type == "text":
@@ -377,7 +382,7 @@ class ClaudePromptCog(commands.Cog):
                 elif event.type == "cancelled":
                     print("\n[Cancelled]", flush=True)
                     await streamer.send_cancelled()
-                    return last_session_id, None
+                    return last_session_id, None, ""
                 elif event.type == "error":
                     print(f"\n[Error] {event.content}", flush=True)
                     await streamer.send_error(event.content)
@@ -386,7 +391,7 @@ class ClaudePromptCog(commands.Cog):
                             guild, "error",
                             f"Claude hit an error in {project_name}." if project_name else "Claude hit an error."
                         ))
-                    return last_session_id, None
+                    return last_session_id, None, ""
                 elif event.type == "result":
                     if event.session_id:
                         last_session_id = event.session_id
@@ -450,6 +455,26 @@ class ClaudePromptCog(commands.Cog):
                             cost_usd=event.cost_usd or 0.0,
                             feature_name=feature.name if feature else None,
                         )
+
+                        # Report cost to myvillage (fire-and-forget, non-blocking)
+                        if event.cost_usd:
+                            import asyncio as _asyncio
+                            from core.bridgecrew_client import report_cost as _report_cost
+                            _feature_mv_id = getattr(feature, "myvillage_id", "") if feature else ""
+                            _asyncio.get_event_loop().run_in_executor(
+                                None,
+                                lambda: _report_cost(
+                                    project_id=myvillage_project_id,
+                                    session_id=last_session_id or "",
+                                    model=event.model or "",
+                                    cost_usd=event.cost_usd,
+                                    input_tokens=context_fill,
+                                    output_tokens=event.output_tokens or 0,
+                                    feature_id=_feature_mv_id,
+                                    started_at=_started_at,
+                                    completed_at=_dt.datetime.now(_dt.timezone.utc),
+                                ),
+                            )
                         session_label = f"feature `{feature.name}`" if feature else "session"
                         session_line = ""
                         if totals["total_cost_usd"]:
@@ -533,12 +558,12 @@ class ClaudePromptCog(commands.Cog):
                 except discord.HTTPException as e:
                     await channel.send(f"Failed to send `{rel_path}`: {e}")
 
-            return last_session_id, pending_question
+            return last_session_id, pending_question, response_text
 
         except Exception as e:
             log.exception("Error during Claude stream")
             await streamer.send_error(str(e))
-            return last_session_id, None
+            return last_session_id, None, ""
         finally:
             # Always clean up the stop button
             if not streamer._finalized:
@@ -588,6 +613,7 @@ class ClaudePromptCog(commands.Cog):
             session_id=feature.session_id,
             resume=True,
             feature=feature,
+            # No activity reporting for internal summary prompts
         )
 
     async def _process_prompt(self, item: QueuedPrompt) -> None:
@@ -627,6 +653,25 @@ class ClaudePromptCog(commands.Cog):
             session_id = state.get("default_session_id")
         resume = bool(session_id)
         preferred_model = state.get("preferred_model")
+
+        # Fetch persona content and myvillage project ID
+        myvillage_project_id = state.get("myvillage_project_id", "")
+        from core.bridgecrew_client import get_project_prompt as _get_prompt, report_activity as _report_activity
+        persona_content = _get_prompt(myvillage_project_id) if myvillage_project_id else ""
+
+        # Report the user's message to the activity feed (fire-and-forget)
+        if myvillage_project_id:
+            loop = asyncio.get_event_loop()
+            loop.run_in_executor(
+                None,
+                lambda: _report_activity(
+                    project_id=myvillage_project_id,
+                    role="user",
+                    author=str(message.author),
+                    content=prompt,
+                    feature_name=feature.name if feature else None,
+                ),
+            )
 
         # If the active feature targets a subdirectory, use that as Claude's working dir
         run_dir = project_dir
@@ -672,7 +717,7 @@ class ClaudePromptCog(commands.Cog):
         project_name = project.name if project else None
 
         # Run the initial prompt
-        last_session_id, pending_question = await self._run_stream(
+        last_session_id, pending_question, response_text = await self._run_stream(
             channel=message.channel,
             runner=runner,
             prompt=prompt,
@@ -682,17 +727,33 @@ class ClaudePromptCog(commands.Cog):
             session_id=session_id,
             resume=resume,
             feature=feature,
+            persona_content=persona_content,
+            myvillage_project_id=myvillage_project_id,
             model=preferred_model,
             guild=guild,
             project_name=project_name,
         )
+
+        # Report Claude's response to the activity feed (fire-and-forget)
+        if myvillage_project_id and response_text:
+            loop = asyncio.get_event_loop()
+            loop.run_in_executor(
+                None,
+                lambda: _report_activity(
+                    project_id=myvillage_project_id,
+                    role="assistant",
+                    author="Claude",
+                    content=response_text,
+                    feature_name=feature.name if feature else None,
+                ),
+            )
 
         # Question loop: collect answer, continue session, repeat if needed
         while pending_question and last_session_id:
             answer = await self._collect_answer(message.channel, pending_question)
             print(f"[Answer] {answer}", flush=True)
 
-            last_session_id, pending_question = await self._run_stream(
+            last_session_id, pending_question, _ = await self._run_stream(
                 channel=message.channel,
                 runner=runner,
                 prompt=answer,
@@ -702,6 +763,8 @@ class ClaudePromptCog(commands.Cog):
                 session_id=last_session_id,
                 resume=True,
                 feature=feature,
+                persona_content=persona_content,
+                myvillage_project_id=myvillage_project_id,
                 model=preferred_model,
                 guild=guild,
                 project_name=project_name,
