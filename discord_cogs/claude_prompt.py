@@ -154,6 +154,7 @@ class QueuedPrompt:
     message: discord.Message
     prompt: str
     project: object  # Project dataclass
+    was_queued: bool = False  # True if this prompt waited behind another
 
 
 class ClaudePromptCog(commands.Cog):
@@ -176,6 +177,7 @@ class ClaudePromptCog(commands.Cog):
 
         If include_paths is True, also includes full filesystem paths for cross-project access.
         """
+        from core.state import load_project_state
         pm = self.bot.project_manager
         projects = pm.projects
         if not projects:
@@ -183,9 +185,12 @@ class ClaudePromptCog(commands.Cog):
 
         lines = ["\n\nThe following projects are available, each with a dedicated Discord thread:"]
         for name, project in sorted(projects.items()):
-            feature = self.bot.feature_manager.get_current_feature(pm.get_project_dir(project))
+            project_dir = pm.get_project_dir(project)
+            project_state = load_project_state(project_dir)
+            session_id = project_state.get("default_session_id")
+            feature = self.bot.feature_manager.get_current_feature(project_dir, session_id=session_id)
             feat_str = f" (active feature: {feature.name})" if feature else ""
-            path_str = f" — path: `{pm.get_project_dir(project)}`" if include_paths else ""
+            path_str = f" — path: `{project_dir}`" if include_paths else ""
             lines.append(f"- {name}: thread <#{project.thread_id}>{feat_str}{path_str}")
 
         if include_paths:
@@ -247,6 +252,7 @@ class ClaudePromptCog(commands.Cog):
             queue = self._queues[channel_id]
 
             if channel_id in self._workers and not self._workers[channel_id].done():
+                queued.was_queued = True
                 await queue.put(queued)
                 position = queue.qsize()
                 await message.add_reaction("\U0001f4cb")
@@ -275,6 +281,7 @@ class ClaudePromptCog(commands.Cog):
 
         # If a worker is already running, queue the prompt
         if thread_id in self._workers and not self._workers[thread_id].done():
+            queued.was_queued = True
             await queue.put(queued)
             position = queue.qsize()
             await message.add_reaction("\U0001f4cb")  # clipboard emoji = queued
@@ -339,18 +346,20 @@ class ClaudePromptCog(commands.Cog):
     async def _run_stream(self, *, channel, runner, prompt, project_dir, run_dir, thread_id,
                           session_id, resume, feature, persona_content="",
                           myvillage_project_id="", model=None,
-                          guild=None, project_name=None) -> tuple[str | None, str | None, str]:
+                          guild=None, project_name=None,
+                          show_prompt_preview: bool = False) -> tuple[str | None, str | None, str]:
         """Run Claude and stream to Discord. Returns (last_session_id, pending_question, response_text).
 
         project_dir: project root — used for state, token tracking, file security
         run_dir: Claude's working directory — may be a subdirectory when a feature targets one
         model: optional model override (e.g. 'claude-opus-4-6')
         guild/project_name: used for autonomous voice notifications
+        show_prompt_preview: include a truncated prompt preview in the Thinking... message
         """
         # Start streaming with a cancel button
         cancel_fn = lambda: runner.cancel(thread_id)
         streamer = DiscordStreamer(channel, on_cancel=cancel_fn)
-        await streamer.start()
+        await streamer.start(prompt_preview=prompt if show_prompt_preview else "")
 
         # Create a background task to periodically flush the buffer
         async def tick_loop(s=streamer):
@@ -403,7 +412,15 @@ class ClaudePromptCog(commands.Cog):
                         if event.session_id and feature:
                             feat_state = load_feature_state(project_dir)
                             if feature.name in feat_state.get("features", {}):
-                                feat_state["features"][feature.name]["session_id"] = event.session_id
+                                feat_data = feat_state["features"][feature.name]
+                                old_session_id = feat_data.get("session_id")
+                                feat_data["session_id"] = event.session_id
+                                # Update the sessions array entry so session_id-based lookup works
+                                if old_session_id and old_session_id != event.session_id:
+                                    for sess in feat_data.get("sessions", []):
+                                        if sess.get("session_id") == old_session_id:
+                                            sess["session_id"] = event.session_id
+                                            break
                                 save_feature_state(project_dir, feat_state)
 
                         # Save project-level defaults (bot state)
@@ -628,9 +645,14 @@ class ClaudePromptCog(commands.Cog):
         else:
             project_dir = self.bot.project_manager.get_project_dir(project)
 
-        # Get session_id: prefer active feature's session, fall back to project default
-        # Also read the preferred model for this project
-        feature = self.bot.feature_manager.get_current_feature(project_dir) if project else None
+        # Load project state early — needed to find the active feature by session_id
+        from core.state import load_project_state
+        state = load_project_state(project_dir)
+        default_session_id = state.get("default_session_id")
+        preferred_model = state.get("preferred_model")
+
+        # Get active feature for this Discord session by matching the last known session_id
+        feature = self.bot.feature_manager.get_current_feature(project_dir, session_id=default_session_id) if project else None
 
         # Gate: require a feature selection for project threads
         if project and not feature:
@@ -646,13 +668,8 @@ class ClaudePromptCog(commands.Cog):
                 await gate_msg.edit(content="*Timed out — prompt cancelled.*", view=None)
                 return
 
-        session_id = feature.session_id if feature else None
-        from core.state import load_project_state
-        state = load_project_state(project_dir)
-        if not session_id:
-            session_id = state.get("default_session_id")
+        session_id = feature.session_id if feature else default_session_id
         resume = bool(session_id)
-        preferred_model = state.get("preferred_model")
 
         # Fetch persona content and myvillage project ID
         myvillage_project_id = state.get("myvillage_project_id", "")
@@ -732,6 +749,7 @@ class ClaudePromptCog(commands.Cog):
             model=preferred_model,
             guild=guild,
             project_name=project_name,
+            show_prompt_preview=item.was_queued,
         )
 
         # Report Claude's response to the activity feed (fire-and-forget)

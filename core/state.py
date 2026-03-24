@@ -78,7 +78,7 @@ def load_feature_state(project_dir: Path) -> dict:
             # Save remaining bot state without feature keys
             _atomic_write(old_state_path, old_state)
             return migrated
-    return {"current_feature": None, "features": {}}
+    return {"features": {}}
 
 
 def save_feature_state(project_dir: Path, state: dict) -> None:

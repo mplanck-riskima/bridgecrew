@@ -11,12 +11,7 @@ class FeatureManager:
         state = load_feature_state(project_dir)
         features = state.get("features", {})
 
-        # Pause the currently active feature
-        current = state.get("current_feature")
-        if current and current in features:
-            features[current]["status"] = "paused"
-
-        # Create the new feature
+        # Create the new feature — each session tracks its own active feature via session_id
         session_id = str(uuid.uuid4())
         feature = Feature(
             name=name, session_id=session_id, subdir=subdir,
@@ -29,7 +24,6 @@ class FeatureManager:
         features[name] = feature.to_dict()
 
         state["features"] = features
-        state["current_feature"] = name
         save_feature_state(project_dir, state)
         return feature
 
@@ -40,14 +34,8 @@ class FeatureManager:
         if name not in features:
             return None
 
-        # Pause current
-        current = state.get("current_feature")
-        if current and current in features:
-            features[current]["status"] = "paused"
-
-        # Activate target — give it a fresh session if it was completed or has no session
-        if features[name].get("status") == "completed" or not features[name].get("session_id"):
-            features[name]["session_id"] = str(uuid.uuid4())
+        # Give it a fresh session ID — each Discord session gets its own session entry
+        features[name]["session_id"] = str(uuid.uuid4())
         features[name]["status"] = "active"
 
         # Record the session
@@ -57,37 +45,61 @@ class FeatureManager:
             "source": "discord",
         })
 
-        state["current_feature"] = name
         state["features"] = features
         save_feature_state(project_dir, state)
         return Feature.from_dict(name, features[name])
 
-    def complete_feature(self, project_dir: Path, name: str | None = None) -> Feature | None:
-        """Mark a feature as completed. If name is None, complete the current feature."""
+    def complete_feature(
+        self, project_dir: Path, name: str | None = None, session_id: str | None = None
+    ) -> Feature | None:
+        """Mark a feature as completed. If name is None, find it by session_id or current_feature fallback."""
         state = load_feature_state(project_dir)
         features = state.get("features", {})
 
         if not name:
-            name = state.get("current_feature")
+            if session_id:
+                current = self.get_current_feature(project_dir, session_id=session_id)
+                if current:
+                    name = current.name
+            # Backward compat: current_feature key
+            if not name:
+                name = state.get("current_feature")
         if not name or name not in features:
             return None
 
         features[name]["status"] = "completed"
         features[name]["completed_at"] = datetime.now(timezone.utc).isoformat()
 
-        # Clear current feature if it's the one being completed
-        if state.get("current_feature") == name:
-            state["current_feature"] = None
-
         state["features"] = features
         save_feature_state(project_dir, state)
         return Feature.from_dict(name, features[name])
 
-    def get_current_feature(self, project_dir: Path) -> Feature | None:
+    def get_current_feature(self, project_dir: Path, session_id: str | None = None) -> Feature | None:
         state = load_feature_state(project_dir)
+        features = state.get("features", {})
+
+        if session_id:
+            # Find the feature whose session matches — check sessions array and top-level session_id
+            for name, data in features.items():
+                if data.get("status") != "active":
+                    continue
+                for sess in data.get("sessions", []):
+                    if sess.get("session_id") == session_id:
+                        return Feature.from_dict(name, data)
+                if data.get("session_id") == session_id:
+                    return Feature.from_dict(name, data)
+
+        # Backward compat: current_feature key
         current = state.get("current_feature")
-        if current and current in state.get("features", {}):
-            return Feature.from_dict(current, state["features"][current])
+        if current and current in features and features[current].get("status") == "active":
+            return Feature.from_dict(current, features[current])
+
+        # Fallback: if exactly one active feature exists, return it
+        active = [(n, d) for n, d in features.items() if d.get("status") == "active"]
+        if len(active) == 1:
+            name, data = active[0]
+            return Feature.from_dict(name, data)
+
         return None
 
     def list_features(self, project_dir: Path) -> list[Feature]:

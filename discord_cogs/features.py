@@ -194,7 +194,9 @@ class FeaturesCog(commands.Cog):
             await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
             return
 
-        feature = self.bot.feature_manager.complete_feature(project_dir, name)
+        from core.state import load_project_state
+        session_id = load_project_state(project_dir).get("default_session_id")
+        feature = self.bot.feature_manager.complete_feature(project_dir, name, session_id=session_id)
         if not feature:
             if name:
                 await interaction.response.send_message(f"Feature `{name}` not found.", ephemeral=True)
@@ -229,7 +231,6 @@ class FeaturesCog(commands.Cog):
             return
 
         features = self.bot.feature_manager.list_features(project_dir)
-        current = self.bot.feature_manager.get_current_feature(project_dir)
 
         if not features:
             await interaction.response.send_message("No features yet. Use `/start-feature` to create one.")
@@ -237,7 +238,7 @@ class FeaturesCog(commands.Cog):
 
         lines = [f"**Features for `{project.name}`:**"]
         for f in features:
-            marker = " ← active" if current and f.name == current.name else ""
+            marker = " ← active" if f.status == "active" else ""
             scope = f" (`{f.subdir}/`)" if f.subdir else ""
             lines.append(f"- `{f.name}` [{f.status}]{scope}{marker}")
 
