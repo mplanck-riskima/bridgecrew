@@ -1,0 +1,31 @@
+@import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    background-color: #080c14;
+    color: #CCDDFF;
+    font-family: 'Exo 2', sans-serif;
+  }
+
+  /* LCARS scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #0d1525; }
+  ::-webkit-scrollbar-thumb { background: #FF9900; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #FFCC44; }
+
+  input, textarea, select {
+    background-color: #080c14;
+    color: #CCDDFF;
+    border-color: #1e3354;
+  }
+  input::placeholder, textarea::placeholder { color: #4466AA; }
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: #FF9900;
+  }
+  option { background: #0d1525; }
+}

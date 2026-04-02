@@ -1,0 +1,153 @@
+"""Scheduled task CRUD and dispatch endpoints."""
+
+from __future__ import annotations
+
+import logging
+from datetime import UTC, datetime
+
+import httpx
+from bson import ObjectId
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from app.config import settings
+from app.db import prompt_templates_col, scheduled_tasks_col
+
+log = logging.getLogger(__name__)
+
+router = APIRouter(tags=["schedules"])
+
+
+def _serialize(doc: dict) -> dict:
+    doc["id"] = str(doc.pop("_id"))
+    return doc
+
+
+class ScheduleCreate(BaseModel):
+    name: str
+    project_id: str = ""
+    prompt_template_id: str
+    discord_channel_id: str
+    cron_expr: str
+    enabled: bool = True
+
+
+class ScheduleUpdate(BaseModel):
+    name: str | None = None
+    project_id: str | None = None
+    prompt_template_id: str | None = None
+    discord_channel_id: str | None = None
+    cron_expr: str | None = None
+    enabled: bool | None = None
+
+
+@router.get("/schedules")
+def list_schedules() -> list[dict]:
+    """Return all scheduled tasks."""
+    return [_serialize(doc) for doc in scheduled_tasks_col().find()]
+
+
+@router.post("/schedules", status_code=201)
+def create_schedule(body: ScheduleCreate) -> dict:
+    """Create a new scheduled task."""
+    doc = {
+        "name": body.name,
+        "project_id": body.project_id,
+        "prompt_template_id": body.prompt_template_id,
+        "discord_channel_id": body.discord_channel_id,
+        "cron_expr": body.cron_expr,
+        "enabled": body.enabled,
+        "last_run": None,
+        "last_status": "unknown",
+    }
+    result = scheduled_tasks_col().insert_one(doc)
+    doc["id"] = str(result.inserted_id)
+    doc.pop("_id", None)
+    return doc
+
+
+@router.put("/schedules/{schedule_id}")
+def update_schedule(schedule_id: str, body: ScheduleUpdate) -> dict:
+    """Update a scheduled task."""
+    try:
+        oid = ObjectId(schedule_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid schedule ID")
+
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    result = scheduled_tasks_col().update_one({"_id": oid}, {"$set": updates})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    doc = scheduled_tasks_col().find_one({"_id": oid})
+    return _serialize(doc)
+
+
+@router.delete("/schedules/{schedule_id}", status_code=204)
+def delete_schedule(schedule_id: str) -> None:
+    """Delete a scheduled task."""
+    try:
+        oid = ObjectId(schedule_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid schedule ID")
+    result = scheduled_tasks_col().delete_one({"_id": oid})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+
+@router.post("/schedules/{schedule_id}/trigger")
+async def trigger_schedule(schedule_id: str) -> dict:
+    """Manually fire a scheduled task — posts its prompt to the configured Discord channel."""
+    try:
+        oid = ObjectId(schedule_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid schedule ID")
+
+    task = scheduled_tasks_col().find_one({"_id": oid})
+    if task is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    try:
+        template_oid = ObjectId(task["prompt_template_id"])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid prompt_template_id on task")
+
+    template = prompt_templates_col().find_one({"_id": template_oid})
+    if template is None:
+        raise HTTPException(status_code=404, detail="Linked prompt template not found")
+
+    status = await _dispatch_to_discord(task["discord_channel_id"], template["content"])
+
+    scheduled_tasks_col().update_one(
+        {"_id": oid},
+        {"$set": {"last_run": datetime.now(UTC), "last_status": status}},
+    )
+    return {"status": status, "channel_id": task["discord_channel_id"]}
+
+
+async def _dispatch_to_discord(channel_id: str, content: str) -> str:
+    """POST a message to a Discord channel via the REST API."""
+    if not settings.DISCORD_BOT_TOKEN:
+        log.warning("DISCORD_BOT_TOKEN not set — skipping Discord dispatch")
+        return "skipped"
+
+    url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+    headers = {
+        "Authorization": f"Bot {settings.DISCORD_BOT_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {"content": content}
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+        if resp.status_code in (200, 201):
+            return "dispatched"
+        log.error("Discord API error %s: %s", resp.status_code, resp.text)
+        return "failed"
+    except Exception as exc:
+        log.error("Discord dispatch failed: %s", exc)
+        return "failed"
