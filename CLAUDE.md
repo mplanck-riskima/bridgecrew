@@ -34,12 +34,33 @@ The bot will strip the marker and upload the file as a Discord attachment. Use t
 
 The path must be relative to the project root. Multiple `[send-file: ...]` markers can be used in one response.
 
+## Dashboard
+
+The project includes a monitoring dashboard at `dashboard/` with a React frontend and FastAPI backend, backed by MongoDB.
+
+**Starting up:**
+- `./startup.sh` — launches both dashboard (Docker) and Discord bot (venv)
+- `./startup.sh --bot-only` — just the Discord bot
+- `./startup.sh --dash-only` — just the dashboard
+- `./dashboard/startup.sh` — dashboard standalone
+- `./start.sh` — bot only (legacy, still works)
+
+**Dashboard stack:**
+- **Frontend:** React 19 + Vite + Tailwind + Recharts (port 5173)
+- **Backend:** FastAPI + PyMongo (port 8000)
+- **Database:** MongoDB (configured via `MONGODB_URI` in `.env`)
+
+**API routes (all `/api/` prefixed):**
+- Projects: CRUD + prompt template assignment
+- Features: CRUD with status/project filtering
+- Costs: ingestion + breakdown/timeline analytics
+- Prompts: template CRUD (personas)
+- Schedules: cron-based task management with Discord dispatch
+- Activity: ingestion + project activity feed
+
 ## Features
 
 - **discord-claude-bot**: The core bot — wraps Claude CLI as a subprocess, streams responses to Discord threads, manages projects and feature sessions. See `features/discord-claude-bot.md`.
 - **voice-notifications**: ElevenLabs-powered audio playback in a Discord voice channel; Claude can trigger audio via `[play-audio: ...]` markers and the bot announces events (run complete, errors, context critical, feature complete) via configurable TTS. See `features/voice-notifications.md`.
 - **protections**: Role-based access control (captains role only) for all @mention prompts and slash commands, plus cross-project file access with explicit safety boundaries. See `features/protections.md`.
 - **Bugs & Fixes**: Catch-all session covering voice notifications, unified feature tracking across CLI and Discord, RBAC protections, footer improvements, and various bot reliability fixes. See `features/Bugs & Fixes.md`.
-
-# currentDate
-Today's date is 2026-03-16.

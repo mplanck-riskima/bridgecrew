@@ -1,14 +1,15 @@
 import asyncio
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import discord
 from discord.ext import commands
 
 from core.discord_streamer import DiscordStreamer
-from discord_cogs import has_captain_role, REQUIRED_ROLE
+from discord import app_commands
+from discord_cogs import has_captain_role, captains_only, REQUIRED_ROLE
 
 SEND_FILE_PATTERN = re.compile(r"\[send-file:\s*(.+?)\]")
 ASK_USER_PATTERN = re.compile(r"\[ask-user:\s*(.+?)\]")
@@ -47,6 +48,7 @@ class AskUserView(discord.ui.View):
         self.question_text = question_text
         self.answer: str | None = None
         self.event = asyncio.Event()
+        self.message: discord.Message | None = None  # set after send
         view_id = uuid.uuid4().hex[:8]
         for i, opt in enumerate(options[:5]):
             self.add_item(AskUserButton(opt.strip(), i, view_id))
@@ -54,6 +56,14 @@ class AskUserView(discord.ui.View):
     async def on_timeout(self) -> None:
         self.answer = None
         self.event.set()
+        # Disable all buttons so stale interactions don't show "interaction failed"
+        if self.message:
+            for child in self.children:
+                child.disabled = True
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
 
 
 BUGS_AND_FIXES = "Bugs & Fixes"
@@ -155,6 +165,64 @@ class QueuedPrompt:
     prompt: str
     project: object  # Project dataclass
     was_queued: bool = False  # True if this prompt waited behind another
+    attachments: list = field(default_factory=list)  # discord.Attachment objects
+    cancelled: bool = False
+    queue_message: object = None  # discord.Message showing the queued notification
+
+
+class CancelQueuedView(discord.ui.View):
+    """Red 'Remove' button shown on queued prompt notifications."""
+
+    def __init__(self, item: QueuedPrompt):
+        super().__init__(timeout=None)
+        self.item = item
+
+    @discord.ui.button(label="Remove", style=discord.ButtonStyle.danger)
+    async def remove(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.item.cancelled = True
+        button.disabled = True
+        button.label = "Removed"
+        original = interaction.message.content if interaction.message else ""
+        await interaction.response.edit_message(content=f"~~{original}~~", view=self)
+
+
+class QueueListView(discord.ui.View):
+    """Shows all queued items with per-item Remove buttons."""
+
+    def __init__(self, items: list[QueuedPrompt]):
+        super().__init__(timeout=120)
+        self.items = items
+        for i, item in enumerate(items[:25]):
+            self.add_item(self._make_button(i, item))
+
+    def _make_button(self, index: int, item: QueuedPrompt):
+        button = discord.ui.Button(
+            label=f"Remove #{index + 1}",
+            style=discord.ButtonStyle.danger,
+            custom_id=f"remove_{id(item)}",
+        )
+
+        async def callback(interaction: discord.Interaction, _item=item, _btn=button):
+            _item.cancelled = True
+            _btn.disabled = True
+            _btn.label = f"#{list(self.items).index(_item) + 1} Removed"
+            await interaction.response.edit_message(content=self._render(), view=self)
+
+        button.callback = callback
+        return button
+
+    def _render(self) -> str:
+        lines = ["**Queued prompts:**"]
+        for i, item in enumerate(self.items):
+            preview = item.prompt[:80] + ("..." if len(item.prompt) > 80 else "")
+            if item.cancelled:
+                lines.append(f"~~{i + 1}. `{preview}`~~")
+            else:
+                lines.append(f"{i + 1}. `{preview}`")
+        active = sum(1 for it in self.items if not it.cancelled)
+        if active == 0:
+            lines.append("\n*All items removed.*")
+        return "\n".join(lines)
 
 
 class ClaudePromptCog(commands.Cog):
@@ -164,6 +232,13 @@ class ClaudePromptCog(commands.Cog):
         self._queues: dict[int, asyncio.Queue[QueuedPrompt]] = {}
         # thread_id -> worker task
         self._workers: dict[int, asyncio.Task] = {}
+
+    def has_active_work(self, thread_id: int) -> bool:
+        """Check if a thread has an active worker or queued items."""
+        if thread_id in self._workers and not self._workers[thread_id].done():
+            return True
+        queue = self._queues.get(thread_id)
+        return queue is not None and not queue.empty()
 
     def _strip_mention(self, content: str) -> str:
         """Remove bot mention from message content."""
@@ -244,7 +319,7 @@ class ClaudePromptCog(commands.Cog):
             augmented_prompt = prompt + project_context
 
             channel_id = message.channel.id
-            queued = QueuedPrompt(message=message, prompt=augmented_prompt, project=None)
+            queued = QueuedPrompt(message=message, prompt=augmented_prompt, project=None, attachments=list(message.attachments))
 
             if channel_id not in self._queues:
                 self._queues[channel_id] = asyncio.Queue()
@@ -257,7 +332,9 @@ class ClaudePromptCog(commands.Cog):
                 position = queue.qsize()
                 await message.add_reaction("\U0001f4cb")
                 preview = prompt[:200] + ("…" if len(prompt) > 200 else "")
-                await message.channel.send(f"*Queued (position {position}):* `{preview}`")
+                view = CancelQueuedView(queued)
+                queue_msg = await message.channel.send(f"*Queued (position {position}):* `{preview}`", view=view)
+                queued.queue_message = queue_msg
                 return
 
             await queue.put(queued)
@@ -271,7 +348,7 @@ class ClaudePromptCog(commands.Cog):
             return
 
         thread_id = message.channel.id
-        queued = QueuedPrompt(message=message, prompt=prompt, project=project)
+        queued = QueuedPrompt(message=message, prompt=prompt, project=project, attachments=list(message.attachments))
 
         # Get or create queue for this thread
         if thread_id not in self._queues:
@@ -286,7 +363,9 @@ class ClaudePromptCog(commands.Cog):
             position = queue.qsize()
             await message.add_reaction("\U0001f4cb")  # clipboard emoji = queued
             preview = prompt[:200] + ("…" if len(prompt) > 200 else "")
-            await message.channel.send(f"*Queued (position {position}):* `{preview}`")
+            view = CancelQueuedView(queued)
+            queue_msg = await message.channel.send(f"*Queued (position {position}):* `{preview}`", view=view)
+            queued.queue_message = queue_msg
             return
 
         # No worker running — put it in the queue and start the worker
@@ -301,7 +380,7 @@ class ClaudePromptCog(commands.Cog):
 
         if options:
             view = AskUserView(question_text, options)
-            await channel.send(f"**Claude is asking:** {question_text}", view=view)
+            view.message = await channel.send(f"**Claude is asking:** {question_text}", view=view)
             try:
                 await asyncio.wait_for(view.event.wait(), timeout=300)
             except asyncio.TimeoutError:
@@ -327,6 +406,15 @@ class ClaudePromptCog(commands.Cog):
         try:
             while not queue.empty():
                 item = await queue.get()
+                # Skip cancelled items
+                if item.cancelled:
+                    continue
+                # Strip the Remove button from the queued notification
+                if item.queue_message:
+                    try:
+                        await item.queue_message.edit(view=None)
+                    except discord.HTTPException:
+                        pass
                 try:
                     await self._process_prompt(item)
                 except Exception as e:
@@ -407,21 +495,33 @@ class ClaudePromptCog(commands.Cog):
                     print(flush=True)  # final newline after streaming
                     # Persist session_id and model
                     if event.session_id or event.model:
-                        from core.state import load_project_state, save_project_state, load_feature_state, save_feature_state
+                        from core.state import load_project_state, save_project_state, load_feature_index, save_feature_index, load_feature_file, save_feature_file
 
                         if event.session_id and feature:
-                            feat_state = load_feature_state(project_dir)
-                            if feature.name in feat_state.get("features", {}):
-                                feat_data = feat_state["features"][feature.name]
+                            feat_data = load_feature_file(project_dir, feature.name)
+                            if feat_data:
                                 old_session_id = feat_data.get("session_id")
                                 feat_data["session_id"] = event.session_id
+                                feat_data["name"] = feature.name
                                 # Update the sessions array entry so session_id-based lookup works
                                 if old_session_id and old_session_id != event.session_id:
                                     for sess in feat_data.get("sessions", []):
                                         if sess.get("session_id") == old_session_id:
                                             sess["session_id"] = event.session_id
                                             break
-                                save_feature_state(project_dir, feat_state)
+                                save_feature_file(project_dir, feature.name, feat_data)
+                                # Update index sessions routing table
+                                index = load_feature_index(project_dir)
+                                sessions = index.setdefault("sessions", {})
+                                if old_session_id and old_session_id in sessions:
+                                    sessions[event.session_id] = sessions.pop(old_session_id)
+                                elif event.session_id not in sessions:
+                                    sessions[event.session_id] = {
+                                        "feature": feature.name,
+                                        "source": "discord",
+                                        "started_at": feat_data.get("started_at", ""),
+                                    }
+                                save_feature_index(project_dir, index)
 
                         # Save project-level defaults (bot state)
                         state = load_project_state(project_dir)
@@ -633,6 +733,66 @@ class ClaudePromptCog(commands.Cog):
             # No activity reporting for internal summary prompts
         )
 
+    @captains_only()
+    @app_commands.command(name="clear-work", description="Remove all queued prompts for this thread")
+    async def clear_work(self, interaction: discord.Interaction) -> None:
+        thread_id = interaction.channel_id
+        queue = self._queues.get(thread_id)
+        if not queue or queue.empty():
+            await interaction.response.send_message("Nothing queued.", ephemeral=True)
+            return
+        count = 0
+        while not queue.empty():
+            try:
+                item = queue.get_nowait()
+                item.cancelled = True
+                count += 1
+            except asyncio.QueueEmpty:
+                break
+        await interaction.response.send_message(f"Cleared **{count}** queued prompt(s).")
+
+    @captains_only()
+    @app_commands.command(name="list-queue", description="Show all queued prompts with remove buttons")
+    async def list_queue(self, interaction: discord.Interaction) -> None:
+        thread_id = interaction.channel_id
+        queue = self._queues.get(thread_id)
+        if not queue or queue.empty():
+            await interaction.response.send_message("Nothing queued.", ephemeral=True)
+            return
+        # Peek at queue items without dequeueing
+        items = [item for item in list(queue._queue) if not item.cancelled]
+        if not items:
+            await interaction.response.send_message("Nothing queued.", ephemeral=True)
+            return
+        view = QueueListView(items)
+        await interaction.response.send_message(view._render(), view=view)
+
+    @staticmethod
+    async def _download_attachments(attachments: list, project_dir: Path, message_id: int) -> list[Path]:
+        """Download Discord attachments to a staging directory. Returns list of file paths."""
+        if not attachments:
+            return []
+        staging_dir = project_dir / ".discord_uploads" / str(message_id)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        downloaded = []
+        for att in attachments:
+            try:
+                file_path = staging_dir / att.filename
+                data = await att.read()
+                file_path.write_bytes(data)
+                downloaded.append(file_path)
+            except Exception as e:
+                log.warning("Failed to download attachment %s: %s", att.filename, e)
+        return downloaded
+
+    @staticmethod
+    def _cleanup_attachments(project_dir: Path, message_id: int) -> None:
+        """Remove the staging directory for downloaded attachments."""
+        import shutil
+        staging_dir = project_dir / ".discord_uploads" / str(message_id)
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
     async def _process_prompt(self, item: QueuedPrompt) -> None:
         message = item.message
         prompt = item.prompt
@@ -696,6 +856,13 @@ class ClaudePromptCog(commands.Cog):
             candidate = project_dir / feature.subdir
             if candidate.is_dir():
                 run_dir = candidate
+
+        # Download any attachments and append file paths to the prompt
+        downloaded_files = await self._download_attachments(item.attachments, project_dir, message.id)
+        if downloaded_files:
+            prompt += "\n\nThe following files were attached to this message:\n"
+            for fp in downloaded_files:
+                prompt += f"- {fp.resolve()}\n"
 
         # Snapshot full diff state so we can detect any changes (committed or not)
         is_self = self.bot.is_self_project(project_dir)
@@ -795,6 +962,10 @@ class ClaudePromptCog(commands.Cog):
             prompt_summary=prompt,
             feature_name=feature.name if feature else None,
         )
+
+        # Clean up downloaded attachments
+        if downloaded_files:
+            self._cleanup_attachments(project_dir, message.id)
 
         # Auto-restart if the bot's own code was actually modified
         if is_self and diff_snapshot is not None:

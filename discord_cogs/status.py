@@ -51,6 +51,11 @@ class StatusCog(commands.Cog):
 
             state = load_project_state(project_dir)
 
+            # Show persona
+            persona_name = state.get("persona_name")
+            if persona_name:
+                lines.append(f"- Persona: `{persona_name}`")
+
             # Show model (preferred takes priority, fall back to last-used)
             preferred_model = state.get("preferred_model")
             last_model = state.get("model")
@@ -96,12 +101,7 @@ class StatusCog(commands.Cog):
                 else:
                     idle_lines.append(f"- {name}{feat_str}")
 
-            from core.state import load_config
-            config = load_config()
-            scotty = config.get("scotty_mode", False)
-
             lines = ["**Bot Status:**"]
-            lines.append(f"- Scotty mode: {'**on** 🏴󠁧󠁢󠁳󠁣󠁴󠁿' if scotty else 'off'}")
             if self.bot._restart_requested:
                 lines.append("\n⚠️ **Restart pending** — waiting for active processes to finish.")
             if active_lines:
@@ -138,24 +138,6 @@ class StatusCog(commands.Cog):
         await interaction.response.send_message("Force restarting — killing all active processes!")
         self.bot._restart_requested = True
         await self.bot.close()
-
-    @app_commands.command(name="scotty-mode", description="Toggle Scotty personality mode on or off")
-    @captains_only()
-    async def scotty_mode(self, interaction: discord.Interaction) -> None:
-        from core.state import load_config, save_config
-        from core.system_prompt import NO_PERSONA, SCOTTY_PERSONA, write_persona
-
-        config = load_config()
-        current = config.get("scotty_mode", False)
-        config["scotty_mode"] = not current
-        save_config(config)
-
-        if config["scotty_mode"]:
-            write_persona(SCOTTY_PERSONA)
-            await interaction.response.send_message("Scotty mode **enabled**! Aye, I'll give ye all she's got, Captain!")
-        else:
-            write_persona(NO_PERSONA)
-            await interaction.response.send_message("Scotty mode **disabled**. Back to normal.")
 
     @app_commands.command(name="cancel", description="Cancel the running Claude process for this project")
     @captains_only()
@@ -219,15 +201,25 @@ class StatusCog(commands.Cog):
         project_dir = self.bot.project_manager.get_project_dir(project)
         feature = self.bot.feature_manager.get_current_feature(project_dir)
 
-        from core.state import load_project_state, save_project_state
+        from core.state import load_project_state, save_project_state, load_feature_index, save_feature_index, load_feature_file, save_feature_file
 
-        state = load_project_state(project_dir)
-
-        if feature and feature.name in state.get("features", {}):
+        if feature:
             # Null session to force a fresh context window; keep cumulative token counts
-            state["features"][feature.name]["session_id"] = None
+            feat_data = load_feature_file(project_dir, feature.name)
+            if feat_data:
+                feat_data["session_id"] = None
+                feat_data["name"] = feature.name
+                save_feature_file(project_dir, feature.name, feat_data)
+            # Remove session from index
+            index = load_feature_index(project_dir)
+            state = load_project_state(project_dir)
+            old_sid = state.get("default_session_id")
+            if old_sid and old_sid in index.get("sessions", {}):
+                del index["sessions"][old_sid]
+                save_feature_index(project_dir, index)
             label = f"feature `{feature.name}`"
         else:
+            state = load_project_state(project_dir)
             state["default_session_id"] = None
             state["session_usage"] = {
                 "total_input_tokens": 0,
@@ -237,6 +229,7 @@ class StatusCog(commands.Cog):
             }
             label = "project session"
 
+        state["default_session_id"] = None
         save_project_state(project_dir, state)
         await interaction.response.send_message(f"Context reset for {label}. The next prompt will start a fresh Claude session.")
 

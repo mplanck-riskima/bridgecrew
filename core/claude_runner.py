@@ -13,7 +13,7 @@ from core.system_prompt import (
     get_system_prompt_file,
     write_session_prompt,
 )
-from models.session import StreamEvent
+from models.session import CliSessionInfo, StreamEvent
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +76,76 @@ class ClaudeRunner:
             if session_file.exists():
                 return True
         return False
+
+    @staticmethod
+    def scan_cli_sessions(project_dir: Path, max_age_hours: int = 24, limit: int = 25) -> list[CliSessionInfo]:
+        """Scan for recent CLI sessions from ~/.claude/projects/<slug>/.
+
+        Returns sessions sorted by timestamp (newest first), limited to those
+        started within max_age_hours and capped at limit entries.
+        """
+        from datetime import datetime, timezone, timedelta
+
+        claude_dir = Path.home() / ".claude" / "projects"
+        if not claude_dir.exists():
+            return []
+
+        slug = str(project_dir).replace("/", "-").replace("\\", "-").replace(":", "-")
+        candidates = [slug, slug.lstrip("-")]
+
+        sessions = []
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+
+        for candidate in candidates:
+            session_dir = claude_dir / candidate
+            if not session_dir.exists():
+                continue
+            for jsonl_file in session_dir.glob("*.jsonl"):
+                try:
+                    mtime = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
+                    if mtime < cutoff:
+                        continue
+
+                    session_id = jsonl_file.stem
+                    first_message = ""
+
+                    # Read the first few lines to find the first user message
+                    with open(jsonl_file, "r", encoding="utf-8", errors="replace") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                entry = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            # Look for human turn
+                            if entry.get("type") == "human" or entry.get("role") == "user":
+                                content = entry.get("message", {}).get("content", "")
+                                if isinstance(content, list):
+                                    # Extract text from content blocks
+                                    text_parts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+                                    content = " ".join(text_parts)
+                                if isinstance(content, str) and content.strip():
+                                    first_message = content.strip()[:120]
+                                    break
+                            # Also handle summary entries (sometimes first line is a summary)
+                            if entry.get("type") == "summary":
+                                first_message = entry.get("summary", "")[:120]
+                                break
+
+                    sessions.append(CliSessionInfo(
+                        session_id=session_id,
+                        timestamp=mtime,
+                        first_message=first_message or "(no preview)",
+                        file_path=str(jsonl_file),
+                    ))
+                except (OSError, ValueError):
+                    continue
+
+        # Sort by timestamp descending (newest first)
+        sessions.sort(key=lambda s: s.timestamp, reverse=True)
+        return sessions[:limit]
 
     async def run(
         self,

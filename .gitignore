@@ -9,3 +9,14 @@ venv/
 features/
 Plans/
 *.stackdump
+.discord_uploads/
+
+# Dashboard
+dashboard/frontend/node_modules/
+dashboard/frontend/dist/
+dashboard/backend/__pycache__/
+
+# Test artifacts
+test-e2e-results.log
+thread_transcript.txt
+fetch_thread_history.py

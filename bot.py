@@ -68,6 +68,7 @@ class ClaudeBot(commands.Bot):
         await self.load_extension("discord_cogs.claude_prompt")
         await self.load_extension("discord_cogs.status")
         await self.load_extension("discord_cogs.voice")
+        await self.load_extension("discord_cogs.personas")
 
         guild = discord.Object(id=int(GUILD_ID))
         self.tree.copy_global_to(guild=guild)
@@ -77,6 +78,10 @@ class ClaudeBot(commands.Bot):
     async def on_ready(self) -> None:
         log.info("Logged in as %s (ID: %s)", self.user, self.user.id)
         log.info("Workspace: %s", WORKSPACE_DIR)
+
+        # Migrate any old monolithic features.json to split format
+        from core.state import migrate_all_projects
+        migrate_all_projects(WORKSPACE_DIR)
 
         # Auto-scan workspace on startup
         results = await self.project_manager.sync_projects(self)

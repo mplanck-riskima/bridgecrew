@@ -162,6 +162,40 @@ def report_activity(
         log.warning("report_activity failed: %s", exc)
 
 
+def list_prompts() -> list[dict]:
+    """Fetch all prompt templates (personas) from the dashboard API."""
+    if not _enabled():
+        return []
+    try:
+        resp = httpx.get(f"{_API_URL}/api/prompts", headers=_headers(), timeout=5)
+        if resp.status_code == 200:
+            return resp.json()
+        log.warning("list_prompts: HTTP %s", resp.status_code)
+    except Exception as exc:
+        log.warning("list_prompts failed: %s", exc)
+    return []
+
+
+def assign_project_persona(project_id: str, prompt_template_id: str | None) -> bool:
+    """Assign (or clear) a persona for a project via PUT /api/projects/{id}."""
+    if not _enabled() or not project_id:
+        return False
+    payload = {"prompt_template_id": prompt_template_id or ""}
+    try:
+        resp = httpx.put(
+            f"{_API_URL}/api/projects/{project_id}",
+            headers=_headers(),
+            json=payload,
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return True
+        log.warning("assign_project_persona: HTTP %s", resp.status_code)
+    except Exception as exc:
+        log.warning("assign_project_persona failed: %s", exc)
+    return False
+
+
 def report_cost(
     project_id: str,
     session_id: str,
