@@ -155,6 +155,7 @@ class ClaudeRunner:
         session_id: str | None = None,
         resume: bool = False,
         persona_content: str = "",
+        workspace_context: str = "",
         model: str | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         if self.is_busy(thread_id):
@@ -176,9 +177,9 @@ class ClaudeRunner:
         elif session_id:
             cmd.extend(["--continue", session_id])
 
-        # Use a per-session prompt file if a persona is provided, otherwise fall back to global
-        if persona_content:
-            session_prompt_file = write_session_prompt(thread_id, persona_content)
+        # Use a per-session prompt file if a persona or workspace context is provided
+        if persona_content or workspace_context:
+            session_prompt_file = write_session_prompt(thread_id, persona_content, workspace_context)
             cmd.extend(["--append-system-prompt-file", str(session_prompt_file)])
         else:
             cmd.extend(["--append-system-prompt-file", str(get_system_prompt_file())])
@@ -227,7 +228,7 @@ class ClaudeRunner:
             self._cancelled.discard(thread_id)
             self._active.pop(thread_id, None)
             # Clean up per-session prompt file if one was written
-            if persona_content:
+            if persona_content or workspace_context:
                 cleanup_session_prompt(thread_id)
             if was_cancelled:
                 yield StreamEvent(type="cancelled")
@@ -256,6 +257,9 @@ class ClaudeRunner:
         # Each assistant event from the CLI contains message.usage with per-call
         # token counts. The last one is the true context-window fill at completion.
         last_turn_input = 0
+        # Rate-limit info from rate_limit_event(s) — keyed by rateLimitType.
+        # Multiple events may arrive (e.g. one daily, one weekly).
+        rate_limits: dict[str, int] = {}  # rateLimitType -> resetsAt
 
         while True:
             chunk = await proc.stdout.read(4096)
@@ -288,7 +292,15 @@ class ClaudeRunner:
                             + usage.get("cache_creation_input_tokens", 0)
                         )
 
-                for event in self._parse_line(data, has_emitted_text, last_turn_input):
+                # Capture rate_limit_event(s) for use in the result footer.
+                if data.get("type") == "rate_limit_event":
+                    info = data.get("rate_limit_info", {})
+                    rtype = info.get("rateLimitType")
+                    resets_at = info.get("resetsAt")
+                    if rtype and resets_at:
+                        rate_limits[rtype] = resets_at
+
+                for event in self._parse_line(data, has_emitted_text, last_turn_input, rate_limits):
                     if event.type == "text" and event.content.strip():
                         has_emitted_text = True
                     yield event
@@ -300,10 +312,10 @@ class ClaudeRunner:
             except json.JSONDecodeError:
                 log.warning("Skipping malformed JSON line: %s", buffer[:200])
                 return
-            for event in self._parse_line(data, has_emitted_text, last_turn_input):
+            for event in self._parse_line(data, has_emitted_text, last_turn_input, rate_limits):
                 yield event
 
-    def _parse_line(self, data: dict, has_emitted_text: bool = False, last_turn_input: int = 0) -> list[StreamEvent]:
+    def _parse_line(self, data: dict, has_emitted_text: bool = False, last_turn_input: int = 0, rate_limits: dict | None = None) -> list[StreamEvent]:
         msg_type = data.get("type", "")
 
         # Handle assistant messages (CLI stream-json format)
@@ -374,6 +386,7 @@ class ClaudeRunner:
                 output_tokens=usage.get("outputTokens") if usage else None,
                 context_window=context_window,
                 model=model_name,
+                rate_limits=dict(rate_limits) if rate_limits else None,
             )]
 
         return []

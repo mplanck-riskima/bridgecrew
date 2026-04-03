@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 
 from core.discord_streamer import DiscordStreamer
+from core.usage_tracker import fmt_time_until
 from discord import app_commands
 from discord_cogs import has_captain_role, captains_only, REQUIRED_ROLE
 
@@ -314,12 +315,8 @@ class ClaudePromptCog(commands.Cog):
             if message.channel.id != self.bot.project_manager.channel_id:
                 return
 
-            # Augment prompt with project context so Claude can suggest the right thread
-            project_context = self._build_project_context(include_paths=True)
-            augmented_prompt = prompt + project_context
-
             channel_id = message.channel.id
-            queued = QueuedPrompt(message=message, prompt=augmented_prompt, project=None, attachments=list(message.attachments))
+            queued = QueuedPrompt(message=message, prompt=prompt, project=None, attachments=list(message.attachments))
 
             if channel_id not in self._queues:
                 self._queues[channel_id] = asyncio.Queue()
@@ -432,8 +429,8 @@ class ClaudePromptCog(commands.Cog):
             await self.bot.notify_worker_done()
 
     async def _run_stream(self, *, channel, runner, prompt, project_dir, run_dir, thread_id,
-                          session_id, resume, feature, persona_content="",
-                          myvillage_project_id="", model=None,
+                          session_id, resume, feature, persona_content="", persona_name="",
+                          workspace_context="", myvillage_project_id="", model=None,
                           guild=None, project_name=None,
                           show_prompt_preview: bool = False) -> tuple[str | None, str | None, str]:
         """Run Claude and stream to Discord. Returns (last_session_id, pending_question, response_text).
@@ -447,7 +444,7 @@ class ClaudePromptCog(commands.Cog):
         # Start streaming with a cancel button
         cancel_fn = lambda: runner.cancel(thread_id)
         streamer = DiscordStreamer(channel, on_cancel=cancel_fn)
-        await streamer.start(prompt_preview=prompt if show_prompt_preview else "")
+        await streamer.start(prompt_preview=prompt if show_prompt_preview else "", persona_name=persona_name)
 
         # Create a background task to periodically flush the buffer
         async def tick_loop(s=streamer):
@@ -470,6 +467,7 @@ class ClaudePromptCog(commands.Cog):
                 session_id=session_id,
                 resume=resume,
                 persona_content=persona_content,
+                workspace_context=workspace_context,
                 model=model,
             ):
                 if event.type == "text":
@@ -559,12 +557,7 @@ class ClaudePromptCog(commands.Cog):
                             indicator = "\U0001f7e2"  # green
                             warning = ""
 
-                        session_id_str = f" · `{last_session_id[:8]}`" if last_session_id else ""
-                        model_str = f" · `{event.model}`" if event.model else ""
-
-                        context_line = f"*{indicator} {context_fill:,} / {context_window:,} tokens ({context_pct:.1f}%){session_id_str}{model_str}*"
-
-                        # Accumulate cost for the session/feature
+                        # Accumulate cost for the session/feature (still tracked, just not shown)
                         totals = self.bot.feature_manager.accumulate_tokens(
                             project_dir,
                             input_tokens=context_fill,
@@ -592,14 +585,50 @@ class ClaudePromptCog(commands.Cog):
                                     completed_at=_dt.datetime.now(_dt.timezone.utc),
                                 ),
                             )
-                        session_label = f"feature `{feature.name}`" if feature else "session"
-                        session_line = ""
-                        if totals["total_cost_usd"]:
-                            session_line = f"\n*{session_label}: ${totals['total_cost_usd']:.4f} — {totals['prompt_count']} prompts*"
+
+                        # Build compact footer: context % + daily/weekly usage + reset time
+                        from core.usage_tracker import get_usage_summary, fmt_tokens
+                        reset_str = ""
+                        usage_str = ""
+                        try:
+                            usage = get_usage_summary()
+                            cur_out = event.output_tokens or 0
+                            today_out = usage.today.output_tokens + cur_out
+                            week_out = usage.this_week.output_tokens + cur_out
+                            usage_str = f" · daily {fmt_tokens(today_out)} · week {fmt_tokens(week_out)}"
+                        except Exception:
+                            pass
+                        from datetime import datetime, timezone as _tz
+
+                        def _rate_label(rtype: str) -> str:
+                            if "five_hour" in rtype:
+                                return "5h"
+                            if "seven_day" in rtype:
+                                return "7d"
+                            if "daily" in rtype:
+                                return "daily"
+                            return rtype
+
+                        reset_str = ""
+                        if event.rate_limits:
+                            reset_parts = []
+                            for rtype, resets_at in event.rate_limits.items():
+                                resets_dt = datetime.fromtimestamp(resets_at, tz=_tz.utc)
+                                reset_parts.append(f"{_rate_label(rtype)} ↺ {fmt_time_until(resets_dt)}")
+                            if reset_parts:
+                                reset_str = " · " + " · ".join(reset_parts)
+
+                        footer_line = f"*{indicator} ctx {context_pct:.1f}%{usage_str}{reset_str}*"
+
+                        # Session/feature line: model, feature, cumulative cost, prompt count
+                        model_str = f"`{event.model}` · " if event.model else ""
+                        session_label = f"`{feature.name}`" if feature else "session"
+                        cost_str = f"${totals['total_cost_usd']:.4f} · " if totals["total_cost_usd"] else ""
+                        session_line = f"*{model_str}{session_label} · {cost_str}{totals['prompt_count']} prompts*"
 
                         await streamer.feed(
                             f"\n\n---\n"
-                            f"{context_line}"
+                            f"{footer_line}\n"
                             f"{session_line}"
                             f"{warning}"
                         )
@@ -834,7 +863,7 @@ class ClaudePromptCog(commands.Cog):
         # Fetch persona content and myvillage project ID
         myvillage_project_id = state.get("myvillage_project_id", "")
         from core.bridgecrew_client import get_project_prompt as _get_prompt, report_activity as _report_activity
-        persona_content = _get_prompt(myvillage_project_id) if myvillage_project_id else ""
+        persona_content, persona_name = _get_prompt(myvillage_project_id) if myvillage_project_id else ("", "")
 
         # Report the user's message to the activity feed (fire-and-forget)
         if myvillage_project_id:
@@ -889,11 +918,7 @@ class ClaudePromptCog(commands.Cog):
             except Exception:
                 pass
 
-        # Augment project thread prompts with cross-project workspace context
-        if project is not None:
-            workspace_context = self._build_project_context(include_paths=True)
-            if workspace_context:
-                prompt = prompt + workspace_context
+        workspace_context = self._build_project_context(include_paths=True)
 
         print(f"\n{'='*60}\n[{message.author}] {prompt}\n{'='*60}", flush=True)
 
@@ -912,6 +937,8 @@ class ClaudePromptCog(commands.Cog):
             resume=resume,
             feature=feature,
             persona_content=persona_content,
+            persona_name=persona_name,
+            workspace_context=workspace_context,
             myvillage_project_id=myvillage_project_id,
             model=preferred_model,
             guild=guild,
@@ -949,6 +976,8 @@ class ClaudePromptCog(commands.Cog):
                 resume=True,
                 feature=feature,
                 persona_content=persona_content,
+                persona_name=persona_name,
+                workspace_context=workspace_context,
                 myvillage_project_id=myvillage_project_id,
                 model=preferred_model,
                 guild=guild,

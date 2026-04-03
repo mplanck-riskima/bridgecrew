@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from discord_cogs import captains_only
+from core.usage_tracker import get_usage_summary, fmt_tokens, fmt_time_until
 
 
 def _fmt_elapsed(seconds: float) -> str:
@@ -70,6 +71,20 @@ class StatusCog(commands.Cog):
                 last = history[-1]
                 lines.append(f"- Last prompt: \"{last['prompt_summary'][:80]}\" by {last['user']}")
 
+            usage = get_usage_summary()
+            lines.append("")
+            lines.append("**Claude Usage:**")
+            lines.append(
+                f"- Today: {fmt_tokens(usage.today.output_tokens)} out / {fmt_tokens(usage.today.input_tokens)} in"
+                f" · ~${usage.today.cost_usd:.2f} · {usage.today.request_count} req"
+                f" · resets {fmt_time_until(usage.daily_resets_at)}"
+            )
+            lines.append(
+                f"- This week: {fmt_tokens(usage.this_week.output_tokens)} out / {fmt_tokens(usage.this_week.input_tokens)} in"
+                f" · ~${usage.this_week.cost_usd:.2f} · {usage.this_week.request_count} req"
+                f" · resets {fmt_time_until(usage.weekly_resets_at)}"
+            )
+
             await interaction.response.send_message("\n".join(lines))
         else:
             # Main channel — show overview
@@ -114,11 +129,24 @@ class StatusCog(commands.Cog):
                 lines.append(f"\n💤 **Idle ({len(idle_lines)}):**")
                 lines.extend(idle_lines)
 
+            usage = get_usage_summary()
+            lines.append("\n**Claude Usage:**")
+            lines.append(
+                f"- Today: {fmt_tokens(usage.today.output_tokens)} out / {fmt_tokens(usage.today.input_tokens)} in"
+                f" · ~${usage.today.cost_usd:.2f} · {usage.today.request_count} req"
+                f" · resets {fmt_time_until(usage.daily_resets_at)}"
+            )
+            lines.append(
+                f"- This week: {fmt_tokens(usage.this_week.output_tokens)} out / {fmt_tokens(usage.this_week.input_tokens)} in"
+                f" · ~${usage.this_week.cost_usd:.2f} · {usage.this_week.request_count} req"
+                f" · resets {fmt_time_until(usage.weekly_resets_at)}"
+            )
+
             await interaction.response.send_message("\n".join(lines))
 
-    @app_commands.command(name="restart-scotty", description="Restart the bot process")
+    @app_commands.command(name="restart-bot", description="Restart the bot process")
     @captains_only()
-    async def restart_scotty(self, interaction: discord.Interaction) -> None:
+    async def restart_bot(self, interaction: discord.Interaction) -> None:
         prompt_cog = self.bot.cogs.get("ClaudePromptCog")
         active = []
         if prompt_cog and prompt_cog._workers:
