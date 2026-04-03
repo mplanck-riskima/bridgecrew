@@ -139,11 +139,11 @@ def get_system_prompt_file() -> Path:
 _SESSIONS_DIR = _CACHE_DIR / "sessions"
 
 
-def write_session_prompt(thread_id: int, persona_content: str) -> Path:
+def write_session_prompt(thread_id: int, persona_content: str, workspace_context: str = "") -> Path:
     """
     Write a per-session combined prompt file and return its path.
 
-    Each concurrent session (Discord thread) can have a different persona.
+    Each concurrent session (Discord thread) can have a different persona and workspace context.
     The file is written to .claude-bot/sessions/{thread_id}/append_system_prompt.md.
     """
     session_dir = _SESSIONS_DIR / str(thread_id)
@@ -151,7 +151,10 @@ def write_session_prompt(thread_id: int, persona_content: str) -> Path:
 
     static = _STATIC_CACHE_PATH.read_text(encoding="utf-8") if _STATIC_CACHE_PATH.exists() else STATIC_SYSTEM_PROMPT
     persona = persona_content.strip() if persona_content.strip() else NO_PERSONA
-    combined = "\n\n".join([persona, static])
+    parts = [persona, static]
+    if workspace_context.strip():
+        parts.append(workspace_context.strip())
+    combined = "\n\n".join(parts)
 
     session_file = session_dir / "append_system_prompt.md"
     session_file.write_text(combined, encoding="utf-8")

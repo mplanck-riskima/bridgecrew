@@ -42,11 +42,12 @@ class DiscordStreamer:
         self._on_cancel = on_cancel
         self._stop_view: StopView | None = None
 
-    async def start(self, prompt_preview: str = "") -> None:
-        label = "*Thinking...*"
+    async def start(self, prompt_preview: str = "", persona_name: str = "") -> None:
+        display_name = persona_name or "Computer"
+        label = f"*{display_name} is thinking...*"
         if prompt_preview:
             truncated = (prompt_preview[:80] + "...") if len(prompt_preview) > 80 else prompt_preview
-            label = f"*Thinking about:* {truncated}"
+            label = f"*{display_name} is thinking about:* {truncated}"
         if self._on_cancel:
             self._stop_view = StopView(self._on_cancel)
             self.current_message = await self.channel.send(label, view=self._stop_view)

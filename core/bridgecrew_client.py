@@ -41,13 +41,13 @@ def _headers() -> dict[str, str]:
     }
 
 
-def get_project_prompt(project_id: str) -> str:
+def get_project_prompt(project_id: str) -> tuple[str, str]:
     """
-    Return the persona content assigned to a project.
-    Returns empty string if not configured or on any error.
+    Return (content, name) for the persona assigned to a project.
+    Returns ("", "") if not configured or on any error.
     """
     if not _enabled() or not project_id:
-        return ""
+        return "", ""
     try:
         resp = httpx.get(
             f"{_API_URL}/api/projects/{project_id}/prompt",
@@ -55,11 +55,12 @@ def get_project_prompt(project_id: str) -> str:
             timeout=5,
         )
         if resp.status_code == 200:
-            return resp.json().get("content", "")
+            data = resp.json()
+            return data.get("content", ""), data.get("name") or ""
         log.warning("get_project_prompt: HTTP %s for project %s", resp.status_code, project_id)
     except Exception as exc:
         log.warning("get_project_prompt failed: %s", exc)
-    return ""
+    return "", ""
 
 
 def report_feature_started(
