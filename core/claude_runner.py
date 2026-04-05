@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -50,9 +51,9 @@ class ClaudeRunner:
     def _kill_tree(pid: int) -> None:
         """Kill a process and its entire child tree.
 
-        On Windows uses `taskkill /F /T` which recursively terminates all
-        descendants. On Unix falls back to a simple kill (process groups aren't
-        used here since the bot runs on Windows).
+        Windows: taskkill /F /T recursively terminates all descendants.
+        Unix: killpg sends SIGKILL to the entire process group (Claude is
+              spawned with start_new_session=True so it leads its own group).
         """
         if sys.platform == "win32":
             try:
@@ -66,9 +67,12 @@ class ClaudeRunner:
                 log.warning("taskkill failed for PID %d: %s", pid, e)
         else:
             try:
-                os.kill(pid, 9)
+                pgid = os.getpgid(pid)
+                os.killpg(pgid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            except Exception as e:
+                log.warning("killpg failed for PID %d: %s", pid, e)
 
     def cancel(self, thread_id: int) -> bool:
         run = self._active.get(thread_id)
@@ -218,8 +222,15 @@ class ClaudeRunner:
         # Build clean environment
         env = {k: v for k, v in os.environ.items()}
 
-        # Isolate the process tree so taskkill /T can cleanly reap all children
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+        # Isolate the process tree so the whole group can be reaped on kill.
+        # Windows: CREATE_NEW_PROCESS_GROUP lets taskkill /T find all children.
+        # Unix: start_new_session=True puts Claude in its own process group
+        #       so os.killpg() can kill all descendants at once.
+        spawn_kwargs: dict = {}
+        if sys.platform == "win32":
+            spawn_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            spawn_kwargs["start_new_session"] = True
 
         try:
             log.info("Starting: %s", " ".join(cmd))
@@ -230,7 +241,7 @@ class ClaudeRunner:
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                creationflags=creationflags,
+                **spawn_kwargs,
             )
             log.info("Process started (PID %s)", proc.pid)
             self._active[thread_id] = ActiveRun(process=proc, prompt=prompt, started_at=time.monotonic())
