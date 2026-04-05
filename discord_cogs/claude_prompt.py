@@ -234,6 +234,8 @@ class ClaudePromptCog(commands.Cog):
         self._queues: dict[int, asyncio.Queue[QueuedPrompt]] = {}
         # thread_id -> worker task
         self._workers: dict[int, asyncio.Task] = {}
+        # thread_id -> human-readable label explaining why the thread is busy (e.g. "completing feature `foo`")
+        self._system_run_labels: dict[int, str] = {}
 
     def has_active_work(self, thread_id: int) -> bool:
         """Check if a thread has an active worker or queued items."""
@@ -331,7 +333,9 @@ class ClaudePromptCog(commands.Cog):
                 await message.add_reaction("\U0001f4cb")
                 preview = prompt[:200] + ("…" if len(prompt) > 200 else "")
                 view = CancelQueuedView(queued)
-                queue_msg = await message.channel.send(f"*Queued (position {position}):* `{preview}`", view=view)
+                label = self._system_run_labels.get(channel_id)
+                label_str = f" — {label}" if label else ""
+                queue_msg = await message.channel.send(f"*Queued (position {position}{label_str}):* `{preview}`", view=view)
                 queued.queue_message = queue_msg
                 return
 
@@ -362,7 +366,9 @@ class ClaudePromptCog(commands.Cog):
             await message.add_reaction("\U0001f4cb")  # clipboard emoji = queued
             preview = prompt[:200] + ("…" if len(prompt) > 200 else "")
             view = CancelQueuedView(queued)
-            queue_msg = await message.channel.send(f"*Queued (position {position}):* `{preview}`", view=view)
+            label = self._system_run_labels.get(thread_id)
+            label_str = f" — {label}" if label else ""
+            queue_msg = await message.channel.send(f"*Queued (position {position}{label_str}):* `{preview}`", view=view)
             queued.queue_message = queue_msg
             return
 
@@ -727,8 +733,9 @@ class ClaudePromptCog(commands.Cog):
 
     async def run_feature_summary_prompt(self, channel, project, feature) -> None:
         """Send a prompt to Claude to create a feature doc and update CLAUDE.md.
-        Called after a feature is marked complete. Always runs from the project root
-        so that CLAUDE.md resolves correctly regardless of subdir.
+        Called after a feature is marked complete. Registers itself as a worker so
+        that messages arriving during the summary are queued (not errored) and
+        processed automatically once the summary finishes.
         """
         project_dir = self.bot.project_manager.get_project_dir(project)
 
@@ -754,18 +761,35 @@ class ClaudePromptCog(commands.Cog):
             f"Preserve all existing content in CLAUDE.md outside the Features section. "
             f"Keep both files concise."
         )
-        await self._run_stream(
-            channel=channel,
-            runner=self.bot.claude_runner,
-            prompt=prompt,
-            project_dir=project_dir,
-            run_dir=project_dir,
-            thread_id=channel.id,
-            session_id=feature.session_id,
-            resume=True,
-            feature=feature,
-            # No activity reporting for internal summary prompts
-        )
+
+        thread_id = channel.id
+
+        # Register as a worker so messages arriving during the summary queue correctly
+        # instead of hitting the "already running" error from the runner.
+        if thread_id not in self._queues:
+            self._queues[thread_id] = asyncio.Queue()
+        self._system_run_labels[thread_id] = f"completing feature **`{feature.name}`**"
+
+        async def _run():
+            try:
+                await self._run_stream(
+                    channel=channel,
+                    runner=self.bot.claude_runner,
+                    prompt=prompt,
+                    project_dir=project_dir,
+                    run_dir=project_dir,
+                    thread_id=thread_id,
+                    session_id=feature.session_id,
+                    resume=True,
+                    feature=feature,
+                    # No activity reporting for internal summary prompts
+                )
+            finally:
+                self._system_run_labels.pop(thread_id, None)
+            # Drain any messages that arrived during the summary
+            await self._worker(thread_id)
+
+        self._workers[thread_id] = asyncio.create_task(_run())
 
     @captains_only()
     @app_commands.command(name="clear-work", description="Remove all queued prompts for this thread")
@@ -856,7 +880,11 @@ class ClaudePromptCog(commands.Cog):
                 "No active feature — pick one before I start working:",
                 view=view,
             )
-            await view.select.event.wait()
+            self._system_run_labels[thread_id] = "selecting a feature"
+            try:
+                await view.select.event.wait()
+            finally:
+                self._system_run_labels.pop(thread_id, None)
             feature = view.select.selected_feature
             if not feature:
                 await gate_msg.edit(content="*Timed out — prompt cancelled.*", view=None)
