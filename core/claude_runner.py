@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
+import sys
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
@@ -44,22 +46,48 @@ class ClaudeRunner:
             return run.prompt, time.monotonic() - run.started_at
         return None
 
+    @staticmethod
+    def _kill_tree(pid: int) -> None:
+        """Kill a process and its entire child tree.
+
+        On Windows uses `taskkill /F /T` which recursively terminates all
+        descendants. On Unix falls back to a simple kill (process groups aren't
+        used here since the bot runs on Windows).
+        """
+        if sys.platform == "win32":
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                )
+            except Exception as e:
+                log.warning("taskkill failed for PID %d: %s", pid, e)
+        else:
+            try:
+                os.kill(pid, 9)
+            except ProcessLookupError:
+                pass
+
     def cancel(self, thread_id: int) -> bool:
         run = self._active.get(thread_id)
         if run and run.process.returncode is None:
             self._cancelled.add(thread_id)
-            run.process.kill()
+            self._kill_tree(run.process.pid)
             return True
         return False
 
     async def cancel_all(self) -> None:
         for thread_id, run in list(self._active.items()):
             if run.process.returncode is None:
+                pid = run.process.pid
                 run.process.kill()
                 try:
-                    await asyncio.wait_for(run.process.wait(), timeout=5)
+                    await asyncio.wait_for(run.process.wait(), timeout=3)
                 except asyncio.TimeoutError:
-                    pass
+                    # Still running after graceful kill — force the whole tree
+                    await asyncio.to_thread(self._kill_tree, pid)
         self._active.clear()
         self._cancelled.clear()
 
@@ -190,6 +218,9 @@ class ClaudeRunner:
         # Build clean environment
         env = {k: v for k, v in os.environ.items()}
 
+        # Isolate the process tree so taskkill /T can cleanly reap all children
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+
         try:
             log.info("Starting: %s", " ".join(cmd))
             proc = await asyncio.create_subprocess_exec(
@@ -199,6 +230,7 @@ class ClaudeRunner:
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                creationflags=creationflags,
             )
             log.info("Process started (PID %s)", proc.pid)
             self._active[thread_id] = ActiveRun(process=proc, prompt=prompt, started_at=time.monotonic())
