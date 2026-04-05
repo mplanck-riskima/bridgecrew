@@ -66,3 +66,4 @@ The project includes a monitoring dashboard at `dashboard/` with a React fronten
 - **Bugs & Fixes**: Catch-all session covering voice notifications, unified feature tracking across CLI and Discord, RBAC protections, footer improvements, and various bot reliability fixes. See `features/Bugs & Fixes.md`.
 - **deploy**: Setup and launch scripts (`setup.sh`, `startup.sh`, `dashboard/startup.sh`) for one-command installation and unified startup of the bot and dashboard, plus repo cleanup for public sharing. See `features/deploy.md`.
 - **deployment**: Multi-stage production Dockerfile and `railway.toml` enabling one-click Railway deployment of the dashboard (React + FastAPI) as a single service. See `features/deployment.md`.
+- **feature-stuff-on-pc**: CLI slash commands and a setup script that bring the bot's feature lifecycle workflow to Claude CLI on any PC, with the bot repo as the single source of truth. See `features/feature-stuff-on-pc.md`.
