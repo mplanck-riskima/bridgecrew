@@ -593,9 +593,9 @@ class ClaudePromptCog(commands.Cog):
                         try:
                             usage = get_usage_summary()
                             cur_out = event.output_tokens or 0
-                            today_out = usage.today.output_tokens + cur_out
+                            five_h_out = usage.five_hour.output_tokens + cur_out
                             week_out = usage.this_week.output_tokens + cur_out
-                            usage_str = f" · daily {fmt_tokens(today_out)} · week {fmt_tokens(week_out)}"
+                            usage_str = f" · 5h {fmt_tokens(five_h_out)} · week {fmt_tokens(week_out)}"
                         except Exception:
                             pass
                         from datetime import datetime, timezone as _tz

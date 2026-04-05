@@ -66,6 +66,7 @@ class UsagePeriod:
 
 @dataclass
 class UsageSummary:
+    five_hour: UsagePeriod = field(default_factory=UsagePeriod)
     today: UsagePeriod = field(default_factory=UsagePeriod)
     this_week: UsagePeriod = field(default_factory=UsagePeriod)
     daily_resets_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -94,6 +95,7 @@ def get_usage_summary(claude_dir: Path | None = None) -> UsageSummary:
         claude_dir = Path.home() / ".claude" / "projects"
 
     now = datetime.now(timezone.utc)
+    five_hour_cutoff = now - timedelta(hours=5)
     today_cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
     # Weekly: start of current week (Monday)
     week_cutoff = today_cutoff - timedelta(days=today_cutoff.weekday())
@@ -177,6 +179,8 @@ def get_usage_summary(claude_dir: Path | None = None) -> UsageSummary:
         periods = [summary.this_week]
         if ts >= today_cutoff:
             periods.append(summary.today)
+        if ts >= five_hour_cutoff:
+            periods.append(summary.five_hour)
 
         for period in periods:
             period.input_tokens += record["input"]
