@@ -880,11 +880,11 @@ class ClaudePromptCog(commands.Cog):
                 "No active feature — pick one before I start working:",
                 view=view,
             )
-            self._system_run_labels[thread_id] = "selecting a feature"
+            self._system_run_labels[message.channel.id] = "selecting a feature"
             try:
                 await view.select.event.wait()
             finally:
-                self._system_run_labels.pop(thread_id, None)
+                self._system_run_labels.pop(message.channel.id, None)
             feature = view.select.selected_feature
             if not feature:
                 await gate_msg.edit(content="*Timed out — prompt cancelled.*", view=None)
