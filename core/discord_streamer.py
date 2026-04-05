@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Callable
 
@@ -163,7 +164,7 @@ class DiscordStreamer:
             # Handle code block continuity
             if first_part:
                 self.current_text += first_part
-            closed_text, reopen_prefix = self._handle_code_block_split(self.current_text)
+            closed_text, reopen_prefix = self._handle_message_split(self.current_text)
             self.current_text = closed_text
 
             # Edit the current message with what fits, removing the stop button
@@ -195,25 +196,30 @@ class DiscordStreamer:
         except discord.HTTPException as e:
             log.warning("Failed to edit message: %s", e)
 
-    def _handle_code_block_split(self, text: str) -> tuple[str, str]:
-        """If text has an unclosed code block, close it and return the reopen prefix."""
-        # Count triple backticks
-        count = text.count("```")
-        if count % 2 == 0:
-            # All code blocks are closed
-            return text, ""
+    def _handle_message_split(self, text: str) -> tuple[str, str]:
+        """Close any open markdown spans at a message boundary.
+        Returns (closed_text, reopen_prefix_for_next_message).
+        Handles (in priority order): fenced code blocks, inline code, bold.
+        """
+        # 1. Fenced code blocks (```) — nothing else is formatted inside them
+        if text.count("```") % 2 == 1:
+            last_open = text.rfind("```")
+            after_ticks = text[last_open + 3:]
+            lang = ""
+            if after_ticks and not after_ticks.startswith("\n"):
+                lang_end = after_ticks.find("\n")
+                if lang_end != -1:
+                    lang = after_ticks[:lang_end].strip()
+            return text + "\n```", f"```{lang}\n"
 
-        # Find the language tag of the last opening ```
-        last_open = text.rfind("```")
-        after_ticks = text[last_open + 3:]
-        lang = ""
-        if after_ticks and not after_ticks.startswith("\n"):
-            lang_end = after_ticks.find("\n")
-            if lang_end != -1:
-                lang = after_ticks[:lang_end].strip()
+        # 2. Inline code (`) — bold/italic are not parsed inside
+        # Strip complete fenced blocks before counting to avoid their backticks
+        text_no_fenced = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+        if text_no_fenced.count("`") % 2 == 1:
+            return text + "`", "`"
 
-        # Close the block in current text
-        closed = text + "\n```"
-        # Reopen in next message
-        reopen = f"```{lang}\n"
-        return closed, reopen
+        # 3. Bold (**)
+        if text.count("**") % 2 == 1:
+            return text + "**", "**"
+
+        return text, ""
