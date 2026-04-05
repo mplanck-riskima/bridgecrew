@@ -21,8 +21,9 @@ log = logging.getLogger(__name__)
 
 class AskUserButton(discord.ui.Button["AskUserView"]):
     def __init__(self, label: str, index: int, view_id: str) -> None:
-        super().__init__(style=discord.ButtonStyle.primary, label=label, custom_id=f"ask_{view_id}_{index}")
-        self._answer = label
+        display = label[:77] + "..." if len(label) > 80 else label
+        super().__init__(style=discord.ButtonStyle.primary, label=display, custom_id=f"ask_{view_id}_{index}")
+        self._answer = label  # preserve full text for the response
 
     async def callback(self, interaction: discord.Interaction) -> None:
         view: AskUserView = self.view
@@ -406,10 +407,14 @@ class ClaudePromptCog(commands.Cog):
                 # Skip cancelled items
                 if item.cancelled:
                     continue
-                # Strip the Remove button from the queued notification
+                # Deactivate the Remove button on the queued notification
                 if item.queue_message:
                     try:
-                        await item.queue_message.edit(view=None)
+                        view = CancelQueuedView(item)
+                        view.remove.disabled = True
+                        view.remove.label = "Processing..."
+                        view.remove.style = discord.ButtonStyle.secondary
+                        await item.queue_message.edit(view=view)
                     except discord.HTTPException:
                         pass
                 try:
