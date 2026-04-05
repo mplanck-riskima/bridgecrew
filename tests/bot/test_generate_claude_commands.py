@@ -64,6 +64,7 @@ class TestRenderCommand:
         template = "Rule: {SNAKE_RULE}"
         rendered = render_command(template, "")
         assert "my_feature" in rendered  # example in the rule
+        assert "{SNAKE_RULE}" not in rendered
 
     def test_no_unresolved_placeholders(self):
         for name, template in COMMANDS.items():
