@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.config import settings
-from app.db import prompt_templates_col, scheduled_tasks_col
+from app.db import scheduled_tasks_col
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +26,8 @@ def _serialize(doc: dict) -> dict:
 class ScheduleCreate(BaseModel):
     name: str
     project_id: str = ""
-    prompt_template_id: str
+    prompt: str
+    prompt_template_id: str = ""
     discord_channel_id: str
     cron_expr: str
     enabled: bool = True
@@ -35,6 +36,7 @@ class ScheduleCreate(BaseModel):
 class ScheduleUpdate(BaseModel):
     name: str | None = None
     project_id: str | None = None
+    prompt: str | None = None
     prompt_template_id: str | None = None
     discord_channel_id: str | None = None
     cron_expr: str | None = None
@@ -53,6 +55,7 @@ def create_schedule(body: ScheduleCreate) -> dict:
     doc = {
         "name": body.name,
         "project_id": body.project_id,
+        "prompt": body.prompt,
         "prompt_template_id": body.prompt_template_id,
         "discord_channel_id": body.discord_channel_id,
         "cron_expr": body.cron_expr,
@@ -110,16 +113,11 @@ async def trigger_schedule(schedule_id: str) -> dict:
     if task is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    try:
-        template_oid = ObjectId(task["prompt_template_id"])
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid prompt_template_id on task")
+    prompt = task.get("prompt", "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Schedule has no prompt configured")
 
-    template = prompt_templates_col().find_one({"_id": template_oid})
-    if template is None:
-        raise HTTPException(status_code=404, detail="Linked prompt template not found")
-
-    status = await _dispatch_to_discord(task["discord_channel_id"], template["content"])
+    status = await _dispatch_to_discord(task["discord_channel_id"], prompt)
 
     scheduled_tasks_col().update_one(
         {"_id": oid},

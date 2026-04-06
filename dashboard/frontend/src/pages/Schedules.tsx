@@ -18,6 +18,7 @@ export default function Schedules() {
   const [form, setForm] = useState({
     name: "",
     project_id: "",
+    prompt: "",
     prompt_template_id: "",
     discord_channel_id: "",
     cron_expr: "",
@@ -139,13 +140,13 @@ export default function Schedules() {
                 />
               </div>
               <div>
-                <label className={labelCls}>Prompt Template</label>
+                <label className={labelCls}>Persona (optional)</label>
                 <select
                   className={inputCls}
                   value={form.prompt_template_id}
                   onChange={(e) => setForm((f) => ({ ...f, prompt_template_id: e.target.value }))}
                 >
-                  <option value="">Select a template...</option>
+                  <option value="">No persona</option>
                   {prompts.map((p) => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -161,10 +162,20 @@ export default function Schedules() {
                 />
               </div>
             </div>
+            <div>
+              <label className={labelCls}>Prompt</label>
+              <textarea
+                className={inputCls}
+                rows={4}
+                value={form.prompt}
+                onChange={(e) => setForm((f) => ({ ...f, prompt: e.target.value }))}
+                placeholder="The message to send to the Discord channel..."
+              />
+            </div>
             <div className="flex gap-3">
               <button
                 onClick={save}
-                disabled={saving || !form.name || !form.prompt_template_id || !form.discord_channel_id || !form.cron_expr}
+                disabled={saving || !form.name || !form.prompt || !form.discord_channel_id || !form.cron_expr}
                 className="px-4 py-1.5 text-xs font-mono font-bold tracking-widest uppercase bg-lcars-orange text-black hover:bg-lcars-amber disabled:opacity-40 transition-colors"
               >
                 {saving ? "SAVING..." : "SAVE"}
@@ -231,14 +242,20 @@ export default function Schedules() {
                   <div className="text-lcars-amber mt-0.5">{s.cron_expr}</div>
                 </div>
                 <div>
-                  <span className="text-lcars-muted tracking-widest">PROMPT</span>
-                  <div className="text-lcars-text mt-0.5">{promptName(s.prompt_template_id)}</div>
+                  <span className="text-lcars-muted tracking-widest">PERSONA</span>
+                  <div className="text-lcars-text mt-0.5">{s.prompt_template_id ? promptName(s.prompt_template_id) : "—"}</div>
                 </div>
                 <div>
                   <span className="text-lcars-muted tracking-widest">CHANNEL</span>
                   <div className="text-lcars-text mt-0.5">{s.discord_channel_id}</div>
                 </div>
               </div>
+              {s.prompt && (
+                <div className="mt-3 text-xs font-mono">
+                  <span className="text-lcars-muted tracking-widest">PROMPT</span>
+                  <div className="text-lcars-text mt-0.5 whitespace-pre-wrap line-clamp-3">{s.prompt}</div>
+                </div>
+              )}
               <div className="mt-2 text-xs font-mono text-lcars-muted">
                 LAST RUN:{" "}
                 <span className="text-lcars-text">

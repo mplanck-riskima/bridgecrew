@@ -30,6 +30,7 @@ export interface ScheduledTask {
   id: string;
   name: string;
   project_id: string;
+  prompt: string;
   prompt_template_id: string;
   discord_channel_id: string;
   cron_expr: string;
