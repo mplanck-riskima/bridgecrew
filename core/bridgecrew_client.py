@@ -196,6 +196,27 @@ def create_project(name: str, description: str = "") -> str | None:
     return None
 
 
+def get_prompt_by_id(template_id: str) -> tuple[str, str]:
+    """Return (content, name) for a specific prompt template by its MongoDB ObjectId.
+    Returns ("", "") if not found or on any error.
+    """
+    if not _enabled() or not template_id:
+        return "", ""
+    try:
+        resp = httpx.get(
+            f"{_API_URL}/api/prompts/{template_id}",
+            headers=_headers(),
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("content", ""), data.get("name") or ""
+        log.warning("get_prompt_by_id: HTTP %s for template %s", resp.status_code, template_id)
+    except Exception as exc:
+        log.warning("get_prompt_by_id failed: %s", exc)
+    return "", ""
+
+
 def list_prompts() -> list[dict]:
     """Fetch all prompt templates (personas) from the dashboard API."""
     if not _enabled():

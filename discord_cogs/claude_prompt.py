@@ -864,8 +864,14 @@ class ClaudePromptCog(commands.Cog):
         # Detect scheduled-order marker and strip it from the prompt
         import re as _re
         is_scheduled = bool(_re.search(r"\[scheduled-order\]", prompt, _re.IGNORECASE))
+        scheduled_persona_id = ""
         if is_scheduled:
-            prompt = _re.sub(r"\s*\[scheduled-order\]\s*", "", prompt, flags=_re.IGNORECASE).strip()
+            persona_match = _re.search(r"\[persona:([^\]]+)\]", prompt, _re.IGNORECASE)
+            if persona_match:
+                scheduled_persona_id = persona_match.group(1).strip()
+            prompt = _re.sub(r"\s*\[scheduled-order\]\s*", "", prompt, flags=_re.IGNORECASE)
+            prompt = _re.sub(r"\s*\[persona:[^\]]*\]\s*", "", prompt, flags=_re.IGNORECASE)
+            prompt = prompt.strip()
 
         # Main channel queries run against the bot's own project directory
         if project is None:
@@ -905,8 +911,11 @@ class ClaudePromptCog(commands.Cog):
 
         # Fetch persona content and BridgeCrew dashboard project ID
         bridgecrew_project_id = state.get("bridgecrew_project_id", "")
-        from core.bridgecrew_client import get_project_prompt as _get_prompt, report_activity as _report_activity
-        persona_content, persona_name = _get_prompt(bridgecrew_project_id) if bridgecrew_project_id else ("", "")
+        from core.bridgecrew_client import get_project_prompt as _get_prompt, get_prompt_by_id as _get_prompt_by_id, report_activity as _report_activity
+        if scheduled_persona_id:
+            persona_content, persona_name = _get_prompt_by_id(scheduled_persona_id)
+        else:
+            persona_content, persona_name = _get_prompt(bridgecrew_project_id) if bridgecrew_project_id else ("", "")
 
         # Report the user's message to the activity feed (fire-and-forget)
         if bridgecrew_project_id:
