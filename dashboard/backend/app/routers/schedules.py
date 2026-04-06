@@ -118,7 +118,7 @@ async def trigger_schedule(schedule_id: str) -> dict:
         raise HTTPException(status_code=400, detail="Schedule has no prompt configured")
 
     # Resolve bot ID: use configured value or fetch from Discord API
-    bot_id = settings.DISCORD_BOT_ID or await _get_bot_id()
+    bot_id = await _get_bot_id()
     mention = f"<@{bot_id}> " if bot_id else ""
     full_prompt = f"{mention}{prompt}\n\n[scheduled-order]"
 
