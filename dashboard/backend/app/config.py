@@ -20,9 +20,8 @@ class BridgeCrewSettings(BaseSettings):
     # Shared secret used to authenticate bot → webapp API calls
     BRIDGECREW_API_KEY: str = ""
 
-    # Discord bot token and ID for posting scheduled prompts
+    # Discord bot token for posting scheduled prompts (bot ID is resolved automatically)
     DISCORD_TOKEN: str = ""
-    DISCORD_BOT_ID: str = ""
     DISCORD_GUILD_ID: str = ""
     DISCORD_CHANNEL_ID: str = ""
 

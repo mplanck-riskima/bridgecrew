@@ -117,8 +117,9 @@ async def trigger_schedule(schedule_id: str) -> dict:
     if not prompt:
         raise HTTPException(status_code=400, detail="Schedule has no prompt configured")
 
-    # Prepend bot mention so the bot picks it up, append marker for autonomous mode
-    mention = f"<@{settings.DISCORD_BOT_ID}> " if settings.DISCORD_BOT_ID else ""
+    # Resolve bot ID: use configured value or fetch from Discord API
+    bot_id = settings.DISCORD_BOT_ID or await _get_bot_id()
+    mention = f"<@{bot_id}> " if bot_id else ""
     full_prompt = f"{mention}{prompt}\n\n[scheduled-order]"
 
     channel_id = task.get("discord_channel_id") or settings.DISCORD_CHANNEL_ID
@@ -132,6 +133,32 @@ async def trigger_schedule(schedule_id: str) -> dict:
         {"$set": {"last_run": datetime.now(UTC), "last_status": status}},
     )
     return {"status": status, "channel_id": task["discord_channel_id"]}
+
+
+_cached_bot_id: str | None = None
+
+
+async def _get_bot_id() -> str:
+    """Fetch and cache the bot's own Discord user ID via GET /users/@me."""
+    global _cached_bot_id
+    if _cached_bot_id:
+        return _cached_bot_id
+    if not settings.DISCORD_TOKEN:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(
+                "https://discord.com/api/v10/users/@me",
+                headers={"Authorization": f"Bot {settings.DISCORD_TOKEN}"},
+            )
+        if resp.status_code == 200:
+            _cached_bot_id = resp.json()["id"]
+            log.info("Resolved bot ID: %s", _cached_bot_id)
+            return _cached_bot_id
+        log.warning("Failed to resolve bot ID: HTTP %s", resp.status_code)
+    except Exception as exc:
+        log.warning("Failed to resolve bot ID: %s", exc)
+    return ""
 
 
 async def _dispatch_to_discord(channel_id: str, content: str) -> str:
