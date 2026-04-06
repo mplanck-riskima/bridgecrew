@@ -126,13 +126,16 @@ async def trigger_schedule(schedule_id: str) -> dict:
     if not channel_id:
         raise HTTPException(status_code=400, detail="No discord_channel_id on task and DISCORD_CHANNEL_ID not configured")
 
-    status = await _dispatch_to_discord(channel_id, full_prompt)
+    status, detail = await _dispatch_to_discord(channel_id, full_prompt)
 
     scheduled_tasks_col().update_one(
         {"_id": oid},
         {"$set": {"last_run": datetime.now(UTC), "last_status": status}},
     )
-    return {"status": status, "channel_id": task["discord_channel_id"]}
+    result: dict = {"status": status, "channel_id": channel_id}
+    if detail:
+        result["detail"] = detail
+    return result
 
 
 _cached_bot_id: str | None = None
@@ -161,11 +164,14 @@ async def _get_bot_id() -> str:
     return ""
 
 
-async def _dispatch_to_discord(channel_id: str, content: str) -> str:
-    """POST a message to a Discord channel via the REST API."""
+async def _dispatch_to_discord(channel_id: str, content: str) -> tuple[str, str]:
+    """POST a message to a Discord channel via the REST API.
+
+    Returns (status, detail) where status is 'dispatched', 'skipped', or 'failed'.
+    """
     if not settings.DISCORD_TOKEN:
         log.warning("DISCORD_TOKEN not set — skipping Discord dispatch")
-        return "skipped"
+        return "skipped", "DISCORD_TOKEN not configured"
 
     url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
     headers = {
@@ -178,9 +184,10 @@ async def _dispatch_to_discord(channel_id: str, content: str) -> str:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(url, headers=headers, json=payload)
         if resp.status_code in (200, 201):
-            return "dispatched"
+            return "dispatched", ""
+        detail = f"HTTP {resp.status_code}: {resp.text}"
         log.error("Discord API error %s: %s", resp.status_code, resp.text)
-        return "failed"
+        return "failed", detail
     except Exception as exc:
         log.error("Discord dispatch failed: %s", exc)
-        return "failed"
+        return "failed", str(exc)
