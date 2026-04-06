@@ -21,7 +21,7 @@ class BridgeCrewSettings(BaseSettings):
     BRIDGECREW_API_KEY: str = ""
 
     # Discord bot token for posting scheduled prompts
-    DISCORD_BOT_TOKEN: str = ""
+    DISCORD_TOKEN: str = ""
     DISCORD_GUILD_ID: str = ""
 
     # Comma-separated list of origins allowed by CORS.

@@ -130,13 +130,13 @@ async def trigger_schedule(schedule_id: str) -> dict:
 
 async def _dispatch_to_discord(channel_id: str, content: str) -> str:
     """POST a message to a Discord channel via the REST API."""
-    if not settings.DISCORD_BOT_TOKEN:
-        log.warning("DISCORD_BOT_TOKEN not set — skipping Discord dispatch")
+    if not settings.DISCORD_TOKEN:
+        log.warning("DISCORD_TOKEN not set — skipping Discord dispatch")
         return "skipped"
 
     url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
     headers = {
-        "Authorization": f"Bot {settings.DISCORD_BOT_TOKEN}",
+        "Authorization": f"Bot {settings.DISCORD_TOKEN}",
         "Content-Type": "application/json",
     }
     payload = {"content": content}
