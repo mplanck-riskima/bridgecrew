@@ -15,9 +15,9 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
-# Check .env exists in parent (bridgecrew root)
-if [ ! -f "../.env" ]; then
-    echo "Error: ../.env not found. Run setup.sh from the bridgecrew root first."
+# Check .env.local exists in parent (bridgecrew root)
+if [ ! -f "../.env.local" ]; then
+    echo "Error: ../.env.local not found. Create it with your local dashboard config."
     exit 1
 fi
 

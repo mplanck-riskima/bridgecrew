@@ -441,7 +441,7 @@ class ClaudePromptCog(commands.Cog):
 
     async def _run_stream(self, *, channel, runner, prompt, project_dir, run_dir, thread_id,
                           session_id, resume, feature, persona_content="", persona_name="",
-                          workspace_context="", myvillage_project_id="", model=None,
+                          workspace_context="", bridgecrew_project_id="", model=None,
                           guild=None, project_name=None,
                           show_prompt_preview: bool = False) -> tuple[str | None, str | None, str]:
         """Run Claude and stream to Discord. Returns (last_session_id, pending_question, response_text).
@@ -577,21 +577,21 @@ class ClaudePromptCog(commands.Cog):
                             feature_name=feature.name if feature else None,
                         )
 
-                        # Report cost to myvillage (fire-and-forget, non-blocking)
+                        # Report cost to BridgeCrew dashboard (fire-and-forget, non-blocking)
                         if event.cost_usd:
                             import asyncio as _asyncio
                             from core.bridgecrew_client import report_cost as _report_cost
-                            _feature_mv_id = getattr(feature, "myvillage_id", "") if feature else ""
+                            _feature_bc_id = getattr(feature, "bridgecrew_feature_id", "") if feature else ""
                             _asyncio.get_event_loop().run_in_executor(
                                 None,
                                 lambda: _report_cost(
-                                    project_id=myvillage_project_id,
+                                    project_id=bridgecrew_project_id,
                                     session_id=last_session_id or "",
                                     model=event.model or "",
                                     cost_usd=event.cost_usd,
                                     input_tokens=context_fill,
                                     output_tokens=event.output_tokens or 0,
-                                    feature_id=_feature_mv_id,
+                                    feature_id=_feature_bc_id,
                                     started_at=_started_at,
                                     completed_at=_dt.datetime.now(_dt.timezone.utc),
                                 ),
@@ -893,18 +893,18 @@ class ClaudePromptCog(commands.Cog):
         session_id = feature.session_id if feature else default_session_id
         resume = bool(session_id)
 
-        # Fetch persona content and myvillage project ID
-        myvillage_project_id = state.get("myvillage_project_id", "")
+        # Fetch persona content and BridgeCrew dashboard project ID
+        bridgecrew_project_id = state.get("bridgecrew_project_id", "")
         from core.bridgecrew_client import get_project_prompt as _get_prompt, report_activity as _report_activity
-        persona_content, persona_name = _get_prompt(myvillage_project_id) if myvillage_project_id else ("", "")
+        persona_content, persona_name = _get_prompt(bridgecrew_project_id) if bridgecrew_project_id else ("", "")
 
         # Report the user's message to the activity feed (fire-and-forget)
-        if myvillage_project_id:
+        if bridgecrew_project_id:
             loop = asyncio.get_event_loop()
             loop.run_in_executor(
                 None,
                 lambda: _report_activity(
-                    project_id=myvillage_project_id,
+                    project_id=bridgecrew_project_id,
                     role="user",
                     author=str(message.author),
                     content=prompt,
@@ -972,7 +972,7 @@ class ClaudePromptCog(commands.Cog):
             persona_content=persona_content,
             persona_name=persona_name,
             workspace_context=workspace_context,
-            myvillage_project_id=myvillage_project_id,
+            bridgecrew_project_id=bridgecrew_project_id,
             model=preferred_model,
             guild=guild,
             project_name=project_name,
@@ -980,12 +980,12 @@ class ClaudePromptCog(commands.Cog):
         )
 
         # Report Claude's response to the activity feed (fire-and-forget)
-        if myvillage_project_id and response_text:
+        if bridgecrew_project_id and response_text:
             loop = asyncio.get_event_loop()
             loop.run_in_executor(
                 None,
                 lambda: _report_activity(
-                    project_id=myvillage_project_id,
+                    project_id=bridgecrew_project_id,
                     role="assistant",
                     author="Claude",
                     content=response_text,
@@ -1011,7 +1011,7 @@ class ClaudePromptCog(commands.Cog):
                 persona_content=persona_content,
                 persona_name=persona_name,
                 workspace_context=workspace_context,
-                myvillage_project_id=myvillage_project_id,
+                bridgecrew_project_id=bridgecrew_project_id,
                 model=preferred_model,
                 guild=guild,
                 project_name=project_name,

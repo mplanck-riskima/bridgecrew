@@ -117,9 +117,24 @@ class ProjectManager:
                 else:
                     results[name] = "failed to create"
 
-            # Ensure .claude-bot/state.json exists
+            # Ensure .claude-bot/state.json exists and dashboard project is linked
             project_dir = self.workspace / name
             state = load_project_state(project_dir)
+            if not state.get("bridgecrew_project_id"):
+                try:
+                    from core.bridgecrew_client import get_projects as _get_projects, create_project as _create_project
+                    dashboard_projects = _get_projects()
+                    match = next((p for p in dashboard_projects if p.get("name") == name), None)
+                    if match:
+                        state["bridgecrew_project_id"] = match["project_id"]
+                        log.info("Linked project %s to dashboard project %s", name, match["project_id"])
+                    else:
+                        project_id = _create_project(name)
+                        if project_id:
+                            state["bridgecrew_project_id"] = project_id
+                            log.info("Created dashboard project for %s: %s", name, project_id)
+                except Exception as exc:
+                    log.warning("Failed to link dashboard project for %s: %s", name, exc)
             save_project_state(project_dir, state)
 
         # Check for removed projects

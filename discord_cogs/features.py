@@ -338,7 +338,7 @@ class FeaturesCog(commands.Cog):
     async def _report_feature_started(self, project_dir: Path, feature) -> None:
         """Report feature start to BridgeCrew API and persist the returned feature_id."""
         state = load_project_state(project_dir)
-        bc_project_id = state.get("myvillage_project_id", "") or state.get("bridgecrew_project_id", "")
+        bc_project_id = state.get("bridgecrew_project_id", "")
         if not bc_project_id:
             return
         loop = asyncio.get_event_loop()

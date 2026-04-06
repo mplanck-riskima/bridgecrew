@@ -1,5 +1,5 @@
 """
-HTTP client for the myvillage dashboard API.
+HTTP client for the BridgeCrew dashboard API.
 
 The discord-Claude bot calls this to:
   1. Fetch the assigned persona for a project before starting a session
@@ -71,8 +71,8 @@ def report_feature_started(
     subdir: str = "",
 ) -> str | None:
     """
-    Tell myvillage a feature has started. Returns the feature_id assigned by
-    the server, or None on failure.
+    Tell the BridgeCrew dashboard a feature has started. Returns the feature_id
+    assigned by the server, or None on failure.
     """
     if not _enabled():
         return None
@@ -106,7 +106,7 @@ def report_feature_completed(
     total_input_tokens: int = 0,
     total_output_tokens: int = 0,
 ) -> None:
-    """Tell myvillage a feature has been completed."""
+    """Tell the BridgeCrew dashboard a feature has been completed."""
     if not _enabled() or not feature_id:
         return
     payload: dict = {"status": "completed"}
@@ -163,6 +163,39 @@ def report_activity(
         log.warning("report_activity failed: %s", exc)
 
 
+def get_projects() -> list[dict]:
+    """Fetch all projects from the dashboard."""
+    if not _enabled():
+        return []
+    try:
+        resp = httpx.get(f"{_API_URL}/api/projects", headers=_headers(), timeout=5)
+        if resp.status_code == 200:
+            return resp.json()
+        log.warning("get_projects: HTTP %s", resp.status_code)
+    except Exception as exc:
+        log.warning("get_projects failed: %s", exc)
+    return []
+
+
+def create_project(name: str, description: str = "") -> str | None:
+    """Create a project in the dashboard. Returns project_id or None."""
+    if not _enabled():
+        return None
+    try:
+        resp = httpx.post(
+            f"{_API_URL}/api/projects",
+            headers=_headers(),
+            json={"name": name, "description": description},
+            timeout=5,
+        )
+        if resp.status_code == 201:
+            return resp.json().get("project_id")
+        log.warning("create_project: HTTP %s", resp.status_code)
+    except Exception as exc:
+        log.warning("create_project failed: %s", exc)
+    return None
+
+
 def list_prompts() -> list[dict]:
     """Fetch all prompt templates (personas) from the dashboard API."""
     if not _enabled():
@@ -208,7 +241,7 @@ def report_cost(
     started_at: datetime | None = None,
     completed_at: datetime | None = None,
 ) -> None:
-    """Report a session cost entry to myvillage."""
+    """Report a session cost entry to the BridgeCrew dashboard."""
     if not _enabled() or cost_usd <= 0:
         return
     now = datetime.now(timezone.utc).isoformat()

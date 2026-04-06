@@ -111,7 +111,7 @@ class PersonasCog(commands.Cog):
 
         project_dir = self.bot.project_manager.get_project_dir(project)
         state = load_project_state(project_dir)
-        project_id = state.get("myvillage_project_id", "") or state.get("bridgecrew_project_id", "")
+        project_id = state.get("bridgecrew_project_id", "")
 
         if not project_id:
             await interaction.response.send_message(

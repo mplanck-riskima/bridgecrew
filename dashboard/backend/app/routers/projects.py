@@ -97,7 +97,7 @@ def get_project(project_id: str) -> dict:
 @router.put("/projects/{project_id}")
 def update_project(project_id: str, body: ProjectUpdate) -> dict:
     """Update a project."""
-    updates = body.model_dump(exclude_none=True)
+    updates = body.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 

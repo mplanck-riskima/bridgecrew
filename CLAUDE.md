@@ -39,9 +39,10 @@ The path must be relative to the project root. Multiple `[send-file: ...]` marke
 The project includes a monitoring dashboard at `dashboard/` with a React frontend and FastAPI backend, backed by MongoDB.
 
 **Starting up:**
-- `./startup.sh` — launches both dashboard (Docker) and Discord bot (venv)
-- `./startup.sh --bot-only` — just the Discord bot
-- `./startup.sh --dash-only` — just the dashboard
+- `./startup.sh` — starts the Discord bot only (default)
+- `./startup.sh --with-dash` — bot + local dashboard (Docker)
+- `./startup.sh --dash-only` — local dashboard only
+- `./startup.sh --down` — tear down local dashboard
 - `./dashboard/startup.sh` — dashboard standalone
 - `./start.sh` — bot only (legacy, still works)
 
