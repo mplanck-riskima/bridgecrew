@@ -286,16 +286,18 @@ class ClaudePromptCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
-        # Ignore own messages
-        if message.author == self.bot.user:
+        # Ignore own messages unless it's a scheduled order dispatched by the dashboard
+        is_self = message.author == self.bot.user
+        is_scheduled_dispatch = is_self and "[scheduled-order]" in message.content
+        if is_self and not is_scheduled_dispatch:
             return
 
         # Must mention the bot
         if self.bot.user not in message.mentions:
             return
 
-        # Role gate: only captains can prompt the bot
-        if not has_captain_role(message.author):
+        # Role gate: only captains can prompt the bot (scheduled orders bypass this)
+        if not is_scheduled_dispatch and not has_captain_role(message.author):
             await message.add_reaction("\U0001f512")  # lock emoji
             return
 
