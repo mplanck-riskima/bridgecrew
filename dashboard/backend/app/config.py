@@ -20,9 +20,11 @@ class BridgeCrewSettings(BaseSettings):
     # Shared secret used to authenticate bot → webapp API calls
     BRIDGECREW_API_KEY: str = ""
 
-    # Discord bot token for posting scheduled prompts
+    # Discord bot token and ID for posting scheduled prompts
     DISCORD_TOKEN: str = ""
+    DISCORD_BOT_ID: str = ""
     DISCORD_GUILD_ID: str = ""
+    DISCORD_CHANNEL_ID: str = ""
 
     # Comma-separated list of origins allowed by CORS.
     # In production (single Railway service) the frontend is same-origin so this

@@ -189,6 +189,7 @@ class ClaudeRunner:
         persona_content: str = "",
         workspace_context: str = "",
         model: str | None = None,
+        is_scheduled: bool = False,
     ) -> AsyncGenerator[StreamEvent, None]:
         if self.is_busy(thread_id):
             yield StreamEvent(type="error", content="Claude is already running for this project.")
@@ -209,9 +210,11 @@ class ClaudeRunner:
         elif session_id:
             cmd.extend(["--continue", session_id])
 
-        # Use a per-session prompt file if a persona or workspace context is provided
-        if persona_content or workspace_context:
-            session_prompt_file = write_session_prompt(thread_id, persona_content, workspace_context)
+        # Use a per-session prompt file if a persona, workspace context, or scheduled mode
+        if persona_content or workspace_context or is_scheduled:
+            session_prompt_file = write_session_prompt(
+                thread_id, persona_content, workspace_context, is_scheduled=is_scheduled
+            )
             cmd.extend(["--append-system-prompt-file", str(session_prompt_file)])
         else:
             cmd.extend(["--append-system-prompt-file", str(get_system_prompt_file())])

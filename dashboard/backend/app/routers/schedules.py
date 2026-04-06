@@ -28,7 +28,7 @@ class ScheduleCreate(BaseModel):
     project_id: str = ""
     prompt: str
     prompt_template_id: str = ""
-    discord_channel_id: str
+    discord_channel_id: str = ""
     cron_expr: str
     enabled: bool = True
 
@@ -117,7 +117,15 @@ async def trigger_schedule(schedule_id: str) -> dict:
     if not prompt:
         raise HTTPException(status_code=400, detail="Schedule has no prompt configured")
 
-    status = await _dispatch_to_discord(task["discord_channel_id"], prompt)
+    # Prepend bot mention so the bot picks it up, append marker for autonomous mode
+    mention = f"<@{settings.DISCORD_BOT_ID}> " if settings.DISCORD_BOT_ID else ""
+    full_prompt = f"{mention}{prompt}\n\n[scheduled-order]"
+
+    channel_id = task.get("discord_channel_id") or settings.DISCORD_CHANNEL_ID
+    if not channel_id:
+        raise HTTPException(status_code=400, detail="No discord_channel_id on task and DISCORD_CHANNEL_ID not configured")
+
+    status = await _dispatch_to_discord(channel_id, full_prompt)
 
     scheduled_tasks_col().update_one(
         {"_id": oid},

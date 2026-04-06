@@ -153,12 +153,12 @@ export default function Schedules() {
                 </select>
               </div>
               <div>
-                <label className={labelCls}>Discord Channel ID</label>
+                <label className={labelCls}>Discord Channel ID (optional — defaults to main channel)</label>
                 <input
                   className={inputCls}
                   value={form.discord_channel_id}
                   onChange={(e) => setForm((f) => ({ ...f, discord_channel_id: e.target.value }))}
-                  placeholder="1234567890"
+                  placeholder="Leave blank to use default channel"
                 />
               </div>
             </div>
@@ -175,7 +175,7 @@ export default function Schedules() {
             <div className="flex gap-3">
               <button
                 onClick={save}
-                disabled={saving || !form.name || !form.prompt || !form.discord_channel_id || !form.cron_expr}
+                disabled={saving || !form.name || !form.prompt || !form.cron_expr}
                 className="px-4 py-1.5 text-xs font-mono font-bold tracking-widest uppercase bg-lcars-orange text-black hover:bg-lcars-amber disabled:opacity-40 transition-colors"
               >
                 {saving ? "SAVING..." : "SAVE"}
@@ -247,7 +247,7 @@ export default function Schedules() {
                 </div>
                 <div>
                   <span className="text-lcars-muted tracking-widest">CHANNEL</span>
-                  <div className="text-lcars-text mt-0.5">{s.discord_channel_id}</div>
+                  <div className="text-lcars-text mt-0.5">{s.discord_channel_id || "default"}</div>
                 </div>
               </div>
               {s.prompt && (

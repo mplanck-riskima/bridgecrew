@@ -443,7 +443,8 @@ class ClaudePromptCog(commands.Cog):
                           session_id, resume, feature, persona_content="", persona_name="",
                           workspace_context="", bridgecrew_project_id="", model=None,
                           guild=None, project_name=None,
-                          show_prompt_preview: bool = False) -> tuple[str | None, str | None, str]:
+                          show_prompt_preview: bool = False,
+                          is_scheduled: bool = False) -> tuple[str | None, str | None, str]:
         """Run Claude and stream to Discord. Returns (last_session_id, pending_question, response_text).
 
         project_dir: project root — used for state, token tracking, file security
@@ -480,6 +481,7 @@ class ClaudePromptCog(commands.Cog):
                 persona_content=persona_content,
                 workspace_context=workspace_context,
                 model=model,
+                is_scheduled=is_scheduled,
             ):
                 if event.type == "text":
                     print(event.content, end="", flush=True)
@@ -857,6 +859,12 @@ class ClaudePromptCog(commands.Cog):
         project = item.project
         runner = self.bot.claude_runner
 
+        # Detect scheduled-order marker and strip it from the prompt
+        import re as _re
+        is_scheduled = bool(_re.search(r"\[scheduled-order\]", prompt, _re.IGNORECASE))
+        if is_scheduled:
+            prompt = _re.sub(r"\s*\[scheduled-order\]\s*", "", prompt, flags=_re.IGNORECASE).strip()
+
         # Main channel queries run against the bot's own project directory
         if project is None:
             project_dir = Path(__file__).resolve().parent.parent
@@ -977,6 +985,7 @@ class ClaudePromptCog(commands.Cog):
             guild=guild,
             project_name=project_name,
             show_prompt_preview=item.was_queued,
+            is_scheduled=is_scheduled,
         )
 
         # Report Claude's response to the activity feed (fire-and-forget)

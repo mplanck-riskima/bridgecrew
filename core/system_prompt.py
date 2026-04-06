@@ -99,6 +99,20 @@ _DISCORD_FORMATTING = (
 
 STATIC_SYSTEM_PROMPT = "\n\n".join([_FILE_SENDING, _ASK_USER, _SAFETY_RULES, _DISCORD_FORMATTING])
 
+# Replaces _ASK_USER when running as a scheduled order
+SCHEDULED_ORDER_INSTRUCTIONS = (
+    "SCHEDULED ORDER MODE — This task was dispatched automatically. "
+    "There is NO human available to answer questions or provide feedback. "
+    "You must carry out the order fully and autonomously using your best judgment. "
+    "Do NOT use [ask-user: ...] markers — no one will respond. "
+    "If something is ambiguous, make a reasonable decision and proceed. "
+    "If the task cannot be completed safely without input, explain why in your response and stop."
+)
+
+STATIC_SYSTEM_PROMPT_SCHEDULED = "\n\n".join([
+    _FILE_SENDING, SCHEDULED_ORDER_INSTRUCTIONS, _SAFETY_RULES, _DISCORD_FORMATTING
+])
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -139,17 +153,26 @@ def get_system_prompt_file() -> Path:
 _SESSIONS_DIR = _CACHE_DIR / "sessions"
 
 
-def write_session_prompt(thread_id: int, persona_content: str, workspace_context: str = "") -> Path:
+def write_session_prompt(
+    thread_id: int,
+    persona_content: str,
+    workspace_context: str = "",
+    is_scheduled: bool = False,
+) -> Path:
     """
     Write a per-session combined prompt file and return its path.
 
     Each concurrent session (Discord thread) can have a different persona and workspace context.
     The file is written to .claude-bot/sessions/{thread_id}/append_system_prompt.md.
+    When is_scheduled=True, autonomous instructions replace the ask-user instructions.
     """
     session_dir = _SESSIONS_DIR / str(thread_id)
     session_dir.mkdir(parents=True, exist_ok=True)
 
-    static = _STATIC_CACHE_PATH.read_text(encoding="utf-8") if _STATIC_CACHE_PATH.exists() else STATIC_SYSTEM_PROMPT
+    if is_scheduled:
+        static = STATIC_SYSTEM_PROMPT_SCHEDULED
+    else:
+        static = _STATIC_CACHE_PATH.read_text(encoding="utf-8") if _STATIC_CACHE_PATH.exists() else STATIC_SYSTEM_PROMPT
     persona = persona_content.strip() if persona_content.strip() else NO_PERSONA
     parts = [persona, static]
     if workspace_context.strip():
