@@ -54,7 +54,7 @@ export default function Agents() {
               <div className="text-gray-400">Loading...</div>
             ) : (
               <ActivityFeed
-                items={(activity.data ?? []) as Record<string, unknown>[]}
+                items={(activity.data ?? []) as unknown as Record<string, unknown>[]}
               />
             )}
           </div>
