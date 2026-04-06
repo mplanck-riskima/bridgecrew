@@ -24,6 +24,7 @@ export default function Schedules() {
     cron_expr: "",
     enabled: true,
   });
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [triggering, setTriggering] = useState<string | null>(null);
 
@@ -45,11 +46,37 @@ export default function Schedules() {
     }
   }
 
+  function startEdit(s: ScheduledTask) {
+    setForm({
+      name: s.name,
+      project_id: s.project_id ?? "",
+      prompt: s.prompt ?? "",
+      prompt_template_id: s.prompt_template_id ?? "",
+      discord_channel_id: s.discord_channel_id ?? "",
+      cron_expr: s.cron_expr,
+      enabled: s.enabled,
+    });
+    setEditingId(s.id);
+    setCreating(false);
+  }
+
+  function cancelForm() {
+    setCreating(false);
+    setEditingId(null);
+    setForm({ name: "", project_id: "", prompt: "", prompt_template_id: "", discord_channel_id: "", cron_expr: "", enabled: true });
+  }
+
   async function save() {
     setSaving(true);
     try {
-      await api.createSchedule(form);
-      setCreating(false);
+      if (editingId) {
+        await api.updateSchedule(editingId, form);
+        setEditingId(null);
+      } else {
+        await api.createSchedule(form);
+        setCreating(false);
+      }
+      setForm({ name: "", project_id: "", prompt: "", prompt_template_id: "", discord_channel_id: "", cron_expr: "", enabled: true });
       await load();
     } catch (e) {
       alert(String(e));
@@ -104,7 +131,7 @@ export default function Schedules() {
             Standing Orders
           </h1>
         </div>
-        {!creating && (
+        {!creating && !editingId && (
           <button
             onClick={() => setCreating(true)}
             className="px-4 py-1.5 text-xs font-mono font-bold tracking-widest uppercase bg-lcars-orange text-black hover:bg-lcars-amber transition-colors"
@@ -114,10 +141,12 @@ export default function Schedules() {
         )}
       </div>
 
-      {creating && (
+      {(creating || editingId) && (
         <div className="bg-lcars-panel border border-lcars-border">
           <div className="px-3 py-1 border-b border-lcars-border">
-            <span className="text-lcars-orange text-xs font-mono tracking-[0.2em] uppercase">New Scheduled Task</span>
+            <span className="text-lcars-orange text-xs font-mono tracking-[0.2em] uppercase">
+              {editingId ? "Edit Scheduled Task" : "New Scheduled Task"}
+            </span>
           </div>
           <div className="p-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -181,7 +210,7 @@ export default function Schedules() {
                 {saving ? "SAVING..." : "SAVE"}
               </button>
               <button
-                onClick={() => setCreating(false)}
+                onClick={cancelForm}
                 className="px-4 py-1.5 text-xs font-mono font-bold tracking-widest uppercase border border-lcars-border text-lcars-muted hover:text-lcars-text hover:border-lcars-muted transition-colors"
               >
                 CANCEL
@@ -220,6 +249,12 @@ export default function Schedules() {
                   className="text-xs font-mono bg-lcars-blue/20 border border-lcars-blue text-lcars-cyan px-3 py-1 hover:bg-lcars-blue/30 disabled:opacity-50 transition-colors"
                 >
                   {triggering === s.id ? "TRIGGERING..." : "TRIGGER NOW"}
+                </button>
+                <button
+                  onClick={() => startEdit(s)}
+                  className="text-xs font-mono text-lcars-muted hover:text-lcars-text tracking-widest transition-colors"
+                >
+                  EDIT
                 </button>
                 <button
                   onClick={() => toggle(s)}
