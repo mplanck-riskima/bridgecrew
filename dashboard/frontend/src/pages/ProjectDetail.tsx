@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import StatusBadge from "@/components/StatusBadge";
 import { api } from "@/lib/api";
@@ -30,7 +30,6 @@ export default function ProjectDetail() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [savingPrompt, setSavingPrompt] = useState(false);
-  const activityBottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     load();
@@ -70,12 +69,6 @@ export default function ProjectDetail() {
     return () => clearInterval(interval);
   }, [tab, id]);
 
-  // Scroll to bottom when activity tab opens or new messages arrive
-  useEffect(() => {
-    if (tab === "activity") {
-      activityBottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [tab, activity.length]);
 
   async function assignPrompt(promptTemplateId: string) {
     if (!id || !project) return;
@@ -274,12 +267,17 @@ export default function ProjectDetail() {
 
       {tab === "activity" && (
         <div className="space-y-2">
+          {activity.length > 0 && (
+            <div className="flex items-center gap-2 px-1 pb-1 border-b border-lcars-border">
+              <span className="text-xs font-mono font-bold text-lcars-accent tracking-widest uppercase">&#8595; Most Recent First</span>
+            </div>
+          )}
           {activity.length === 0 && (
             <div className="text-lcars-muted font-mono text-sm p-4">
               NO ACTIVITY IN THE LAST 24 HOURS — MESSAGES APPEAR HERE ONCE THE BOT IS ACTIVE
             </div>
           )}
-          {activity.map((entry) => {
+          {[...activity].reverse().map((entry) => {
             const isUser = entry.role === "user";
             return (
               <div
@@ -321,7 +319,6 @@ export default function ProjectDetail() {
               </div>
             );
           })}
-          <div ref={activityBottomRef} />
         </div>
       )}
 
