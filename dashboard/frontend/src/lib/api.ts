@@ -2,10 +2,12 @@
 
 import type {
   ActivityEntry,
+  AgentSummary,
   CostBreakdown,
   CostTimelineEntry,
   Feature,
   PaginatedResponse,
+  PersonaDefinition,
   Project,
   PromptTemplate,
   ScheduledTask,
@@ -82,6 +84,37 @@ export const api = {
   // Activity feed
   getProjectActivity: (projectId: string, limit = 50) =>
     request<ActivityEntry[]>(`/projects/${projectId}/activity?limit=${limit}`),
+
+  // Agents
+  getAgents: () => request<AgentSummary[]>("/agents"),
+  getAgentActivity: (agentName: string, limit = 30) =>
+    request<ActivityEntry[]>(`/agents/${encodeURIComponent(agentName)}/activity?limit=${limit}`),
+
+  // Personas
+  getPersonas: () => request<PersonaDefinition[]>("/personas"),
+  updatePersona: (name: string, data: Partial<PersonaDefinition>) =>
+    request<PersonaDefinition>(`/personas/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  resetPersona: (name: string) =>
+    request<PersonaDefinition>(`/personas/${encodeURIComponent(name)}/reset`, {
+      method: "POST",
+    }),
+
+  // Memory
+  getShortTermMemories: (params?: Record<string, string>) => {
+    const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+    return request<PaginatedResponse<Record<string, unknown>>>(`/memory/short-term${qs}`);
+  },
+  getLongTermMemories: (params?: Record<string, string>) => {
+    const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+    return request<PaginatedResponse<Record<string, unknown>>>(`/memory/long-term${qs}`);
+  },
+  searchMemories: (query: string) =>
+    request<PaginatedResponse<Record<string, unknown>>>(
+      `/memory/search?q=${encodeURIComponent(query)}`,
+    ),
 
   // Projects
   getProjects: () => request<Project[]>("/projects"),

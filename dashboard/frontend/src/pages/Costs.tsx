@@ -13,9 +13,6 @@ export default function Costs() {
     queryFn: () => api.getCostTimeline(30),
   });
 
-  const agentData = Object.entries(breakdown.data?.by_agent ?? {}).map(
-    ([name, value]) => ({ name, value }),
-  );
   const modelData = Object.entries(breakdown.data?.by_model ?? {}).map(
     ([name, value]) => ({ name, value }),
   );

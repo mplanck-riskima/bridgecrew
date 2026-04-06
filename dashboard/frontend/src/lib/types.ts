@@ -81,3 +81,34 @@ export interface PaginatedResponse<T> {
   page: number;
   page_size: number;
 }
+
+export interface Task {
+  task_id: string;
+  title: string;
+  status: string;
+  description?: string;
+  assigned_to?: string;
+  cost_usd: number;
+  created_at: string;
+  pr_url?: string;
+  last_output?: string;
+  feature_title?: string;
+}
+
+export interface AgentSummary {
+  persona_name: string;
+  status: string;
+  model: string;
+  total_cost_usd: number;
+  enabled: boolean;
+  active_tasks: Task[];
+}
+
+export interface PersonaDefinition {
+  persona_name: string;
+  system_prompt: string;
+  model: string;
+  allowed_tools: string[];
+  max_budget_usd: number;
+  enabled: boolean;
+}
