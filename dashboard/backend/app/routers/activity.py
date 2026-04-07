@@ -1,4 +1,4 @@
-"""Activity feed — short-term per-project message log (TTL 24 h)."""
+"""Activity feed — persistent per-project message log."""
 
 from __future__ import annotations
 
@@ -51,12 +51,12 @@ def ingest_activity(body: ActivityCreate, _: None = Depends(require_api_key)) ->
 
 
 @router.get("/projects/{project_id}/activity")
-def get_project_activity(project_id: str, limit: int = 50) -> list[dict]:
+def get_project_activity(project_id: str, limit: int = 200) -> list[dict]:
     docs = (
         activity_col()
         .find({"project_id": project_id})
         .sort("created_at", -1)
-        .limit(min(limit, 200))
+        .limit(min(limit, 1000))
     )
-    # Return in chronological order for display
+    # Return in chronological order for display (frontend reverses to show newest first)
     return list(reversed([_to_out(d) for d in docs]))

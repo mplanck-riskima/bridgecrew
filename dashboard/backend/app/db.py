@@ -43,6 +43,5 @@ def projects_col() -> Collection:
 
 def activity_col() -> Collection:
     col = get_db()["activity"]
-    # TTL index — documents expire automatically after 24 hours
-    col.create_index([("created_at", ASCENDING)], expireAfterSeconds=86400, background=True)
+    col.create_index([("project_id", ASCENDING), ("created_at", ASCENDING)], background=True)
     return col
