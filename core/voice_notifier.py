@@ -11,6 +11,15 @@ log = logging.getLogger(__name__)
 ELEVENLABS_BASE = "https://api.elevenlabs.io"
 
 
+def _ffmpeg_exe() -> str:
+    """Return the ffmpeg executable path, using bundled imageio-ffmpeg if available."""
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
+
+
 class VoiceNotifier:
     """Generates audio via ElevenLabs and plays it in a configured Discord voice channel.
 
@@ -147,7 +156,7 @@ class VoiceNotifier:
                     log.warning("Voice playback error: %s", error)
                 loop.call_soon_threadsafe(done.set)
 
-            source = discord.FFmpegPCMAudio(io.BytesIO(audio_bytes), pipe=True)
+            source = discord.FFmpegPCMAudio(io.BytesIO(audio_bytes), pipe=True, executable=_ffmpeg_exe())
             voice_client.play(source, after=after)
             await asyncio.wait_for(done.wait(), timeout=60)
 
