@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app import scheduler as sched
 from app.config import settings
 from app.routers import activity, costs, features, projects, prompts, schedules
 
@@ -18,7 +19,11 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
+    sched.start()
+    try:
+        yield
+    finally:
+        sched.stop()
 
 
 app = FastAPI(title="BridgeCrew Dashboard", version="0.1.0", lifespan=lifespan)

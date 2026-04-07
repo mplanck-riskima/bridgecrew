@@ -10,6 +10,7 @@ from bson import ObjectId
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app import scheduler as sched
 from app.config import settings
 from app.db import scheduled_tasks_col
 
@@ -66,6 +67,7 @@ def create_schedule(body: ScheduleCreate) -> dict:
     result = scheduled_tasks_col().insert_one(doc)
     doc["id"] = str(result.inserted_id)
     doc.pop("_id", None)
+    sched.reload_schedules()
     return doc
 
 
@@ -86,6 +88,7 @@ def update_schedule(schedule_id: str, body: ScheduleUpdate) -> dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
     doc = scheduled_tasks_col().find_one({"_id": oid})
+    sched.reload_schedules()
     return _serialize(doc)
 
 
@@ -99,6 +102,7 @@ def delete_schedule(schedule_id: str) -> None:
     result = scheduled_tasks_col().delete_one({"_id": oid})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Schedule not found")
+    sched.reload_schedules()
 
 
 async def _run_task(task: dict) -> tuple[str, str]:
