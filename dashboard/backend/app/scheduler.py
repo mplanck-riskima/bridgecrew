@@ -15,7 +15,7 @@ _scheduler: AsyncIOScheduler | None = None
 def get_scheduler() -> AsyncIOScheduler:
     global _scheduler
     if _scheduler is None:
-        _scheduler = AsyncIOScheduler(timezone="UTC")
+        _scheduler = AsyncIOScheduler(timezone="America/Los_Angeles")
     return _scheduler
 
 
@@ -70,7 +70,7 @@ def reload_schedules() -> None:
                 day=day,
                 month=month,
                 day_of_week=day_of_week,
-                timezone="UTC",
+                timezone="America/Los_Angeles",
             )
             scheduler.add_job(
                 _fire_task,
