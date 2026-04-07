@@ -44,9 +44,9 @@ class AskUserButton(discord.ui.Button["AskUserView"]):
 
 
 class StopQuestionButton(discord.ui.Button):
-    """A secondary 'I'll handle it' button added to every ask-user interaction."""
+    """A secondary 'Stop — I'll clarify' button added to every ask-user interaction."""
     def __init__(self) -> None:
-        super().__init__(style=discord.ButtonStyle.secondary, label="I'll handle it", row=1)
+        super().__init__(style=discord.ButtonStyle.secondary, label="Stop — I'll clarify", row=1)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         view: AskUserView = self.view
@@ -415,7 +415,7 @@ class ClaudePromptCog(commands.Cog):
             stop_view = discord.ui.View(timeout=300)
             stop_event = asyncio.Event()
 
-            stop_btn = discord.ui.Button(style=discord.ButtonStyle.secondary, label="I'll handle it")
+            stop_btn = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Stop — I'll clarify")
 
             async def _stop_cb(interaction: discord.Interaction) -> None:
                 stop_event.set()
@@ -1063,7 +1063,7 @@ class ClaudePromptCog(commands.Cog):
             )
 
         _STOP_PHRASES = (
-            "i'll handle it", "i will handle it",
+            "i'll handle it", "i will handle it", "stop", "stop — i'll clarify", "i'll clarify",
             "let me handle", "i'll take care", "i will take care",
             "let me modify", "i'll modify", "i will modify",
             "i have notes", "i'll update", "i will update",
