@@ -1072,6 +1072,11 @@ class ClaudePromptCog(commands.Cog):
 
         # Question loop: collect answer, continue session, repeat if needed
         while pending_question and last_session_id:
+            # Open-ended questions (no options) end the prompt sequence —
+            # the user replies in the thread naturally, which starts a new prompt.
+            if "|" not in pending_question:
+                break
+
             answer = await self._collect_answer(message.channel, pending_question)
             print(f"[Answer] {answer!r}", flush=True)
 

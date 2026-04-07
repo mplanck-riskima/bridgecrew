@@ -57,8 +57,10 @@ _ASK_USER = (
     "Or with up to 5 predefined options:\n"
     "[ask-user: Which approach? | Option A | Option B | Option C]\n"
     "The bot will display this as an interactive Discord widget. "
-    "With options, the user sees clickable buttons. Without options, they type a free-text reply. "
-    "After the user answers, your session will be continued with their response as the next prompt. "
+    "With options, the user sees clickable buttons — their click resumes your session immediately. "
+    "Without options (open-ended), the question ends your current prompt sequence. "
+    "The user will answer by replying in the thread, which starts a new prompt naturally — "
+    "the session is continuous so you will have full context when they reply. "
     "IMPORTANT: Only use ONE [ask-user: ...] per response. Place it at the end of your message. "
     "Do not continue working after the marker — wait for the user's answer."
 )
