@@ -111,8 +111,8 @@ export default function ProjectDetail() {
   const features: Feature[] = p.features ?? [];
 
   const tabs: { key: Tab; label: string }[] = [
-    { key: "features", label: `FEATURES (${features.length})` },
-    { key: "activity", label: `ACTIVITY (${activity.length})` },
+    { key: "features", label: "FEATURES" },
+    { key: "activity", label: "ACTIVITY" },
     { key: "costs", label: "COSTS" },
   ];
 

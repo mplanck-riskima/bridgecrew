@@ -20,8 +20,6 @@ export default function Dashboard() {
 
   const totalCost = costs.data?.total_usd ?? 0;
   const projectList = projects.data ?? [];
-  const activeProjects = projectList.filter((p) => p.status === "active").length;
-  const totalFeatures = projectList.reduce((sum, p) => sum + (p.feature_count ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -34,15 +32,7 @@ export default function Dashboard() {
       </div>
 
       {/* Status panels */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <LcarsPanel label="Active Missions">
-          <div className="text-4xl font-mono text-lcars-amber">{activeProjects}</div>
-          <div className="text-lcars-muted text-xs mt-1 font-mono">of {projectList.length} total</div>
-        </LcarsPanel>
-        <LcarsPanel label="Total Features">
-          <div className="text-4xl font-mono text-lcars-cyan">{totalFeatures}</div>
-          <div className="text-lcars-muted text-xs mt-1 font-mono">across all projects</div>
-        </LcarsPanel>
+      <div className="grid grid-cols-1 gap-4">
         <Link to="/costs">
           <LcarsPanel label="Resource Usage">
             <div className="text-4xl font-mono text-lcars-green">
@@ -78,9 +68,6 @@ export default function Dashboard() {
                 }`} />
                 <span className="flex-1 text-lcars-text group-hover:text-lcars-cyan font-medium transition-colors">
                   {p.name}
-                </span>
-                <span className="text-lcars-muted font-mono text-xs shrink-0">
-                  {p.feature_count ?? 0} features
                 </span>
                 {p.total_cost_usd ? (
                   <span className="text-lcars-green font-mono text-xs shrink-0">
