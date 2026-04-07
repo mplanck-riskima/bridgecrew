@@ -1067,10 +1067,9 @@ class ClaudePromptCog(commands.Cog):
             answer = await self._collect_answer(message.channel, pending_question)
             print(f"[Answer] {answer!r}", flush=True)
 
-            # None means the user clicked "I'll handle it" or timed out — stop the loop
-            # and let them continue by replying in the thread normally.
+            # None means the user clicked "I'll handle it" or timed out — proceed with best guess
             if answer is None:
-                break
+                answer = "No answer provided — use your best judgment and proceed."
 
             last_session_id, pending_question, _ = await self._run_stream(
                 channel=message.channel,
