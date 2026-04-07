@@ -75,7 +75,7 @@ class AskUserView(discord.ui.View):
         self.add_item(StopQuestionButton())
 
     async def on_timeout(self) -> None:
-        self.answer = None  # None signals "stop the loop"
+        self.answer = "__timeout__"  # distinct from None (stop button)
         self.event.set()
         # Disable all buttons so stale interactions don't show "interaction failed"
         if self.message:
@@ -409,8 +409,8 @@ class ClaudePromptCog(commands.Cog):
             try:
                 await asyncio.wait_for(view.event.wait(), timeout=300)
             except asyncio.TimeoutError:
-                pass
-            return view.answer or "No response (timed out)"
+                return "__timeout__"  # on_timeout hasn't run yet; signal directly
+            return view.answer  # None = stop button; str = option label
         else:
             stop_view = discord.ui.View(timeout=300)
             stop_event = asyncio.Event()
@@ -1084,8 +1084,12 @@ class ClaudePromptCog(commands.Cog):
             if answer and answer.strip().lower().rstrip(".!") in _STOP_PHRASES:
                 break
 
-            # None means button click or timeout — proceed with best guess
+            # Stop button clicked — terminate immediately, user will clarify manually
             if answer is None:
+                break
+
+            # Timeout — proceed with best guess
+            if answer == "__timeout__":
                 answer = "No answer provided — use your best judgment and proceed."
 
             last_session_id, pending_question, _ = await self._run_stream(
