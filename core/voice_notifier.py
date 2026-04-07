@@ -84,11 +84,11 @@ class VoiceNotifier:
         kind, content = self._route(prompt)
         try:
             if kind == "tts":
-                return await asyncio.get_event_loop().run_in_executor(
+                return await asyncio.get_running_loop().run_in_executor(
                     None, lambda: self._call_tts(content, api_key, voice_id)
                 )
             else:
-                return await asyncio.get_event_loop().run_in_executor(
+                return await asyncio.get_running_loop().run_in_executor(
                     None, lambda: self._call_sfx(content, api_key)
                 )
         except Exception:
@@ -139,12 +139,13 @@ class VoiceNotifier:
                 await guild.voice_client.disconnect(force=True)
 
             voice_client = await voice_channel.connect()
+            loop = asyncio.get_running_loop()
             done = asyncio.Event()
 
             def after(error):
                 if error:
                     log.warning("Voice playback error: %s", error)
-                done.set()
+                loop.call_soon_threadsafe(done.set)
 
             source = discord.FFmpegPCMAudio(io.BytesIO(audio_bytes), pipe=True)
             voice_client.play(source, after=after)

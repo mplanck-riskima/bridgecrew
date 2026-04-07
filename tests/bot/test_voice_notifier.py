@@ -1,13 +1,8 @@
 """Tests for VoiceNotifier MP3 pipeline."""
 from unittest.mock import MagicMock, patch, AsyncMock
-import sys
 import pytest
 import io
 import discord
-
-# Mock audioop for Python 3.14+ where it's been removed
-if 'audioop' not in sys.modules:
-    sys.modules['audioop'] = MagicMock()
 
 from core.voice_notifier import VoiceNotifier
 
