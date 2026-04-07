@@ -2,6 +2,8 @@
 from unittest.mock import MagicMock, patch, AsyncMock
 import sys
 import pytest
+import io
+import discord
 
 # Mock audioop for Python 3.14+ where it's been removed
 if 'audioop' not in sys.modules:
@@ -28,8 +30,8 @@ class TestCallTts:
 
         assert result == fake_bytes
         # Must request an MP3 format, not PCM
-        call_kwargs = mock_post.call_args
-        assert "mp3" in call_kwargs.kwargs["params"]["output_format"]
+        params = mock_post.call_args.kwargs.get("params") or {}
+        assert "mp3" in params.get("output_format", "")
 
     def test_falls_back_to_lower_bitrate_on_403(self, notifier):
         fake_bytes = b"fake-mp3-128"
@@ -39,10 +41,13 @@ class TestCallTts:
         resp_200.status_code = 200
         resp_200.content = fake_bytes
 
-        with patch("core.voice_notifier.httpx.post", side_effect=[resp_403, resp_200]):
+        with patch("core.voice_notifier.httpx.post", side_effect=[resp_403, resp_200]) as mock_post:
             result = notifier._call_tts("hello", api_key="key", voice_id="voice123")
 
         assert result == fake_bytes
+        calls = mock_post.call_args_list
+        assert calls[0].kwargs["params"]["output_format"] == "mp3_44100_192"
+        assert calls[1].kwargs["params"]["output_format"] == "mp3_44100_128"
 
     def test_returns_none_on_non_403_error(self, notifier):
         mock_resp = MagicMock()
@@ -50,6 +55,15 @@ class TestCallTts:
         mock_resp.text = "server error"
 
         with patch("core.voice_notifier.httpx.post", return_value=mock_resp):
+            result = notifier._call_tts("hello", api_key="key", voice_id="voice123")
+
+        assert result is None
+
+    def test_returns_none_when_all_formats_403(self, notifier):
+        resp_403 = MagicMock()
+        resp_403.status_code = 403
+
+        with patch("core.voice_notifier.httpx.post", return_value=resp_403):
             result = notifier._call_tts("hello", api_key="key", voice_id="voice123")
 
         assert result is None
@@ -66,8 +80,8 @@ class TestCallSfx:
             result = notifier._call_sfx("explosion", api_key="key")
 
         assert result == fake_bytes
-        call_kwargs = mock_post.call_args
-        assert "mp3" in call_kwargs.kwargs["params"]["output_format"]
+        params = mock_post.call_args.kwargs.get("params") or {}
+        assert "mp3" in params.get("output_format", "")
 
     def test_returns_none_when_all_formats_403(self, notifier):
         resp_403 = MagicMock()
@@ -82,9 +96,6 @@ class TestCallSfx:
 class TestPlay:
     @pytest.mark.asyncio
     async def test_uses_ffmpeg_audio_source(self, notifier):
-        import io
-        import discord
-
         mp3_bytes = b"fake-mp3"
         guild = MagicMock(spec=discord.Guild)
         guild.voice_client = None
@@ -95,10 +106,7 @@ class TestPlay:
         voice_channel = AsyncMock(spec=discord.VoiceChannel)
         voice_channel.connect.return_value = voice_client
 
-        captured = {}
-
         def fake_play(source, after=None):
-            captured["source"] = source
             if after:
                 after(None)
 
