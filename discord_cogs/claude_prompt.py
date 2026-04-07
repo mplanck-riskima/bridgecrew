@@ -43,6 +43,24 @@ class AskUserButton(discord.ui.Button["AskUserView"]):
         view.stop()
 
 
+class StopQuestionButton(discord.ui.Button):
+    """A secondary 'I'll handle it' button added to every ask-user interaction."""
+    def __init__(self) -> None:
+        super().__init__(style=discord.ButtonStyle.secondary, label="I'll handle it", row=1)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view: AskUserView = self.view
+        view.answer = None  # None signals "stop the loop"
+        view.event.set()
+        for item in view.children:
+            item.disabled = True
+        await interaction.response.edit_message(
+            content=f"**Claude asked:** {view.question_text}\n*Continuing manually...*",
+            view=view,
+        )
+        view.stop()
+
+
 class AskUserView(discord.ui.View):
     def __init__(self, question_text: str, options: list[str]) -> None:
         import uuid
@@ -54,9 +72,10 @@ class AskUserView(discord.ui.View):
         view_id = uuid.uuid4().hex[:8]
         for i, opt in enumerate(options[:5]):
             self.add_item(AskUserButton(opt.strip(), i, view_id))
+        self.add_item(StopQuestionButton())
 
     async def on_timeout(self) -> None:
-        self.answer = None
+        self.answer = None  # None signals "stop the loop"
         self.event.set()
         # Disable all buttons so stale interactions don't show "interaction failed"
         if self.message:
@@ -393,18 +412,48 @@ class ClaudePromptCog(commands.Cog):
                 pass
             return view.answer or "No response (timed out)"
         else:
-            await channel.send(
-                f"**Claude is asking:** {question_text}\n*Reply in this channel to answer.*"
+            stop_view = discord.ui.View(timeout=300)
+            stop_event = asyncio.Event()
+
+            stop_btn = discord.ui.Button(style=discord.ButtonStyle.secondary, label="I'll handle it")
+
+            async def _stop_cb(interaction: discord.Interaction) -> None:
+                stop_event.set()
+                stop_btn.disabled = True
+                await interaction.response.edit_message(
+                    content=f"**Claude asked:** {question_text}\n*Continuing manually...*",
+                    view=stop_view,
+                )
+                stop_view.stop()
+
+            stop_btn.callback = _stop_cb
+            stop_view.add_item(stop_btn)
+
+            ask_msg = await channel.send(
+                f"**Claude is asking:** {question_text}\n*Reply in this channel to answer, or click the button to continue on your own.*",
+                view=stop_view,
             )
             try:
-                reply = await self.bot.wait_for(
-                    "message",
-                    check=lambda m: m.channel == channel and not m.author.bot,
-                    timeout=300,
+                reply_task = asyncio.ensure_future(
+                    self.bot.wait_for(
+                        "message",
+                        check=lambda m: m.channel == channel and not m.author.bot,
+                    )
                 )
-                return reply.content
-            except asyncio.TimeoutError:
-                return "No response (timed out)"
+                stop_task = asyncio.ensure_future(stop_event.wait())
+                done, pending = await asyncio.wait(
+                    [reply_task, stop_task],
+                    timeout=300,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for t in pending:
+                    t.cancel()
+                if reply_task in done:
+                    return reply_task.result().content
+                # Timed out or stop button pressed
+                return None
+            except Exception:
+                return None
 
     async def _worker(self, thread_id: int) -> None:
         """Process queued prompts for a thread, one at a time."""
@@ -1016,7 +1065,12 @@ class ClaudePromptCog(commands.Cog):
         # Question loop: collect answer, continue session, repeat if needed
         while pending_question and last_session_id:
             answer = await self._collect_answer(message.channel, pending_question)
-            print(f"[Answer] {answer}", flush=True)
+            print(f"[Answer] {answer!r}", flush=True)
+
+            # None means the user clicked "I'll handle it" or timed out — stop the loop
+            # and let them continue by replying in the thread normally.
+            if answer is None:
+                break
 
             last_session_id, pending_question, _ = await self._run_stream(
                 channel=message.channel,
