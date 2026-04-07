@@ -144,6 +144,10 @@ async def trigger_schedule(schedule_id: str) -> dict:
     if task is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
+    # Guard: return 400 for missing prompt on manual trigger (scheduler handles this gracefully via _run_task)
+    if not task.get("prompt", "").strip():
+        raise HTTPException(status_code=400, detail="Schedule has no prompt configured")
+
     status, detail = await _run_task(task)
     channel_id = task.get("discord_channel_id") or settings.DISCORD_CHANNEL_ID or ""
     result: dict = {"status": status, "channel_id": channel_id}
