@@ -2,6 +2,7 @@ import asyncio
 import io
 import logging
 import os
+import re
 
 import discord
 import httpx
@@ -69,14 +70,29 @@ class VoiceNotifier:
         log.warning("ElevenLabs TTS: no MP3 format available on this subscription tier.")
         return None
 
+    _DURATION_PATTERN = re.compile(r"\((\d+(?:\.\d+)?)s\)\s*$")
+    _SFX_DEFAULT_DURATION = 8.0
+    _SFX_PROMPT_INFLUENCE = 0.5
+
     def _call_sfx(self, description: str, api_key: str) -> bytes | None:
-        """Call ElevenLabs Sound Effects, trying MP3 formats from best to lowest quality."""
+        """Call ElevenLabs Sound Effects, trying MP3 formats from best to lowest quality.
+
+        Duration can be specified in the description with a trailing (Ns) suffix,
+        e.g. "celebration fanfare (5s)". Defaults to 8 seconds if not specified.
+        """
+        match = self._DURATION_PATTERN.search(description)
+        if match:
+            duration = float(match.group(1))
+            description = description[:match.start()].strip()
+        else:
+            duration = self._SFX_DEFAULT_DURATION
+
         for fmt in self._MP3_FORMATS:
             resp = httpx.post(
                 f"{ELEVENLABS_BASE}/v1/sound-generation",
                 params={"output_format": fmt},
                 headers={"xi-api-key": api_key},
-                json={"text": description},
+                json={"text": description, "duration_seconds": duration, "prompt_influence": self._SFX_PROMPT_INFLUENCE},
                 timeout=30,
             )
             if resp.status_code == 200:
