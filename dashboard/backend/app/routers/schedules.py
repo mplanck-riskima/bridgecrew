@@ -101,9 +101,36 @@ def delete_schedule(schedule_id: str) -> None:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
 
+async def _run_task(task: dict) -> tuple[str, str]:
+    """Core dispatch logic shared by manual trigger and the scheduler.
+
+    Returns (status, detail).
+    """
+    prompt = task.get("prompt", "").strip()
+    if not prompt:
+        return "skipped", "no prompt configured"
+
+    bot_id = await _get_bot_id()
+    mention = f"<@{bot_id}> " if bot_id else ""
+    persona_marker = f"\n[persona:{task['prompt_template_id']}]" if task.get("prompt_template_id") else ""
+    full_prompt = f"{mention}{prompt}\n\n[scheduled-order]{persona_marker}"
+
+    channel_id = task.get("discord_channel_id") or settings.DISCORD_CHANNEL_ID
+    if not channel_id:
+        return "failed", "no discord_channel_id and DISCORD_CHANNEL_ID not configured"
+
+    status, detail = await _dispatch_to_discord(channel_id, full_prompt)
+
+    scheduled_tasks_col().update_one(
+        {"_id": task["_id"]},
+        {"$set": {"last_run": datetime.now(UTC), "last_status": status}},
+    )
+    return status, detail
+
+
 @router.post("/schedules/{schedule_id}/trigger")
 async def trigger_schedule(schedule_id: str) -> dict:
-    """Manually fire a scheduled task — posts its prompt to the configured Discord channel."""
+    """Manually fire a scheduled task."""
     try:
         oid = ObjectId(schedule_id)
     except Exception:
@@ -113,26 +140,8 @@ async def trigger_schedule(schedule_id: str) -> dict:
     if task is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    prompt = task.get("prompt", "").strip()
-    if not prompt:
-        raise HTTPException(status_code=400, detail="Schedule has no prompt configured")
-
-    # Resolve bot ID: use configured value or fetch from Discord API
-    bot_id = await _get_bot_id()
-    mention = f"<@{bot_id}> " if bot_id else ""
-    persona_marker = f"\n[persona:{task['prompt_template_id']}]" if task.get("prompt_template_id") else ""
-    full_prompt = f"{mention}{prompt}\n\n[scheduled-order]{persona_marker}"
-
-    channel_id = task.get("discord_channel_id") or settings.DISCORD_CHANNEL_ID
-    if not channel_id:
-        raise HTTPException(status_code=400, detail="No discord_channel_id on task and DISCORD_CHANNEL_ID not configured")
-
-    status, detail = await _dispatch_to_discord(channel_id, full_prompt)
-
-    scheduled_tasks_col().update_one(
-        {"_id": oid},
-        {"$set": {"last_run": datetime.now(UTC), "last_status": status}},
-    )
+    status, detail = await _run_task(task)
+    channel_id = task.get("discord_channel_id") or settings.DISCORD_CHANNEL_ID or ""
     result: dict = {"status": status, "channel_id": channel_id}
     if detail:
         result["detail"] = detail
