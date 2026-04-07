@@ -30,8 +30,9 @@ async def _fire_task(task_id: str) -> None:
     if task is None:
         log.warning("Scheduled task %s not found in DB — skipping", task_id)
         return
+    # Guard against the window between a disable mutation and the next reload_schedules() call
     if not task.get("enabled", False):
-        log.info("Task %s is disabled — skipping", task_id)
+        log.warning("Task %s fired but is now disabled — skipping (reload pending)", task_id)
         return
 
     log.info("Auto-firing scheduled task: %s", task.get("name", task_id))
@@ -90,10 +91,10 @@ def reload_schedules() -> None:
 def start() -> None:
     """Start the scheduler and load initial jobs."""
     scheduler = get_scheduler()
-    reload_schedules()
     if not scheduler.running:
         scheduler.start()
         log.info("APScheduler started")
+    reload_schedules()
 
 
 def stop() -> None:

@@ -51,7 +51,7 @@ def list_schedules() -> list[dict]:
 
 
 @router.post("/schedules", status_code=201)
-def create_schedule(body: ScheduleCreate) -> dict:
+async def create_schedule(body: ScheduleCreate) -> dict:
     """Create a new scheduled task."""
     doc = {
         "name": body.name,
@@ -72,7 +72,7 @@ def create_schedule(body: ScheduleCreate) -> dict:
 
 
 @router.put("/schedules/{schedule_id}")
-def update_schedule(schedule_id: str, body: ScheduleUpdate) -> dict:
+async def update_schedule(schedule_id: str, body: ScheduleUpdate) -> dict:
     """Update a scheduled task."""
     try:
         oid = ObjectId(schedule_id)
@@ -93,7 +93,7 @@ def update_schedule(schedule_id: str, body: ScheduleUpdate) -> dict:
 
 
 @router.delete("/schedules/{schedule_id}", status_code=204)
-def delete_schedule(schedule_id: str) -> None:
+async def delete_schedule(schedule_id: str) -> None:
     """Delete a scheduled task."""
     try:
         oid = ObjectId(schedule_id)
