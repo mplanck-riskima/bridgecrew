@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type { PromptTemplate, ScheduledTask } from "../lib/types";
+import CronInput from "../components/CronInput";
+import cronstrue from "cronstrue";
 
 const STATUS_COLORS: Record<string, string> = {
   dispatched: "text-lcars-green",
@@ -8,6 +10,24 @@ const STATUS_COLORS: Record<string, string> = {
   skipped: "text-lcars-amber",
   unknown: "text-lcars-muted",
 };
+
+function isCronValid(expr: string): boolean {
+  if (!expr.trim()) return false;
+  try {
+    cronstrue.toString(expr);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function safeDescribe(expr: string): string {
+  try {
+    return cronstrue.toString(expr, { use24HourTimeFormat: false });
+  } catch {
+    return "";
+  }
+}
 
 export default function Schedules() {
   const [schedules, setSchedules] = useState<ScheduledTask[]>([]);
@@ -161,11 +181,9 @@ export default function Schedules() {
               </div>
               <div>
                 <label className={labelCls}>Cron Expression</label>
-                <input
-                  className={inputCls}
+                <CronInput
                   value={form.cron_expr}
-                  onChange={(e) => setForm((f) => ({ ...f, cron_expr: e.target.value }))}
-                  placeholder="0 9 * * *"
+                  onChange={(v) => setForm((f) => ({ ...f, cron_expr: v }))}
                 />
               </div>
               <div>
@@ -204,7 +222,7 @@ export default function Schedules() {
             <div className="flex gap-3">
               <button
                 onClick={save}
-                disabled={saving || !form.name || !form.prompt || !form.cron_expr}
+                disabled={saving || !form.name || !form.prompt || !isCronValid(form.cron_expr)}
                 className="px-4 py-1.5 text-xs font-mono font-bold tracking-widest uppercase bg-lcars-orange text-black hover:bg-lcars-amber disabled:opacity-40 transition-colors"
               >
                 {saving ? "SAVING..." : "SAVE"}
@@ -275,6 +293,9 @@ export default function Schedules() {
                 <div>
                   <span className="text-lcars-muted tracking-widest">CRON</span>
                   <div className="text-lcars-amber mt-0.5">{s.cron_expr}</div>
+                  {safeDescribe(s.cron_expr) && (
+                    <div className="text-lcars-muted text-[10px] mt-0.5">{safeDescribe(s.cron_expr)}</div>
+                  )}
                 </div>
                 <div>
                   <span className="text-lcars-muted tracking-widest">PERSONA</span>
