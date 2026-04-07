@@ -3,7 +3,6 @@ import io
 import logging
 import os
 
-import audioop
 import discord
 import httpx
 
@@ -38,18 +37,13 @@ class VoiceNotifier:
             return "tts", prompt[6:].strip()
         return "sfx", prompt
 
-    # PCM formats in descending quality order; ElevenLabs gates higher rates by tier.
-    # Pro: pcm_44100 | Creator: pcm_22050 | Starter: pcm_16000
-    _PCM_FORMATS = [("pcm_44100", 44100), ("pcm_22050", 22050), ("pcm_16000", 16000)]
+    # MP3 formats in descending quality order; ElevenLabs gates higher bitrates by tier.
+    # Pro/Creator: mp3_44100_192 | Starter and above: mp3_44100_128
+    _MP3_FORMATS = ["mp3_44100_192", "mp3_44100_128"]
 
-    def _to_discord_pcm(self, raw: bytes, inrate: int) -> bytes:
-        """Convert ElevenLabs mono PCM to stereo 48000 Hz for Discord."""
-        resampled, _ = audioop.ratecv(raw, 2, 1, inrate, 48000, None)
-        return audioop.tostereo(resampled, 2, 1, 1)
-
-    def _call_tts(self, text: str, api_key: str, voice_id: str) -> tuple[bytes, int] | None:
-        """Call ElevenLabs TTS, trying PCM formats from best to lowest quality."""
-        for fmt, rate in self._PCM_FORMATS:
+    def _call_tts(self, text: str, api_key: str, voice_id: str) -> bytes | None:
+        """Call ElevenLabs TTS, trying MP3 formats from best to lowest quality."""
+        for fmt in self._MP3_FORMATS:
             resp = httpx.post(
                 f"{ELEVENLABS_BASE}/v1/text-to-speech/{voice_id}",
                 params={"output_format": fmt},
@@ -58,17 +52,17 @@ class VoiceNotifier:
                 timeout=30,
             )
             if resp.status_code == 200:
-                return resp.content, rate
+                return resp.content
             if resp.status_code != 403:
                 log.warning("ElevenLabs TTS HTTP %s: %s", resp.status_code, resp.text[:200])
                 return None
-            log.debug("ElevenLabs TTS: %s not available on this tier, trying lower rate.", fmt)
-        log.warning("ElevenLabs TTS: no PCM format available on this subscription tier.")
+            log.debug("ElevenLabs TTS: %s not available on this tier, trying lower bitrate.", fmt)
+        log.warning("ElevenLabs TTS: no MP3 format available on this subscription tier.")
         return None
 
-    def _call_sfx(self, description: str, api_key: str) -> tuple[bytes, int] | None:
-        """Call ElevenLabs Sound Effects, trying PCM formats from best to lowest quality."""
-        for fmt, rate in self._PCM_FORMATS:
+    def _call_sfx(self, description: str, api_key: str) -> bytes | None:
+        """Call ElevenLabs Sound Effects, trying MP3 formats from best to lowest quality."""
+        for fmt in self._MP3_FORMATS:
             resp = httpx.post(
                 f"{ELEVENLABS_BASE}/v1/sound-generation",
                 params={"output_format": fmt},
@@ -77,34 +71,28 @@ class VoiceNotifier:
                 timeout=30,
             )
             if resp.status_code == 200:
-                return resp.content, rate
+                return resp.content
             if resp.status_code != 403:
                 log.warning("ElevenLabs SFX HTTP %s: %s", resp.status_code, resp.text[:200])
                 return None
-            log.debug("ElevenLabs SFX: %s not available on this tier, trying lower rate.", fmt)
-        log.warning("ElevenLabs SFX: no PCM format available on this subscription tier.")
+            log.debug("ElevenLabs SFX: %s not available on this tier, trying lower bitrate.", fmt)
+        log.warning("ElevenLabs SFX: no MP3 format available on this subscription tier.")
         return None
 
     async def _generate_audio(self, prompt: str, api_key: str, voice_id: str) -> bytes | None:
-        """Generate Discord-ready stereo PCM from the prompt. Runs in a thread pool."""
+        """Generate MP3 audio from the prompt. Runs in a thread pool."""
         kind, content = self._route(prompt)
         try:
             if kind == "tts":
-                result = await asyncio.get_event_loop().run_in_executor(
+                return await asyncio.get_event_loop().run_in_executor(
                     None, lambda: self._call_tts(content, api_key, voice_id)
                 )
             else:
-                result = await asyncio.get_event_loop().run_in_executor(
+                return await asyncio.get_event_loop().run_in_executor(
                     None, lambda: self._call_sfx(content, api_key)
                 )
-            if result is None:
-                return None
-            raw, inrate = result
-            return await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self._to_discord_pcm(raw, inrate)
-            )
         except Exception:
-            log.exception("Audio generation/conversion failed for prompt: %r", prompt[:80])
+            log.exception("Audio generation failed for prompt: %r", prompt[:80])
             return None
 
     async def play_prompt(self, guild: discord.Guild, prompt: str) -> None:
@@ -143,7 +131,7 @@ class VoiceNotifier:
         voice_channel: discord.VoiceChannel,
         audio_bytes: bytes,
     ) -> None:
-        """Connect, play PCM audio from memory, then disconnect."""
+        """Connect, play MP3 audio via FFmpeg, then disconnect."""
         voice_client: discord.VoiceClient | None = None
         try:
             # Disconnect any stale connection first
@@ -158,7 +146,7 @@ class VoiceNotifier:
                     log.warning("Voice playback error: %s", error)
                 done.set()
 
-            source = discord.PCMAudio(io.BytesIO(audio_bytes))
+            source = discord.FFmpegPCMAudio(io.BytesIO(audio_bytes), pipe=True)
             voice_client.play(source, after=after)
             await asyncio.wait_for(done.wait(), timeout=60)
 
