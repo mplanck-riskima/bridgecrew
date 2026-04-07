@@ -45,6 +45,24 @@ Accumulated fixes and small improvements across the bot and dashboard covering: 
 - **`core/usage_tracker.py`** — Rolling 5h/daily/weekly token usage from JSONL scan.
 - **`core/discord_streamer.py`** — Markdown span continuity across Discord message splits.
 
+## Key changes (session 2 — 2026-04-06)
+
+### Ask-user stop vs timeout fix
+- **`discord_cogs/claude_prompt.py`** — Fixed race condition where a timeout returned `None` (initial value) before `on_timeout` ran, causing the loop to treat it as a stop-button click and break instead of sending a best-guess prompt. `asyncio.TimeoutError` now returns `"__timeout__"` directly; `on_timeout` only handles UI cleanup.
+- **`discord_cogs/claude_prompt.py`** — Fixed stop-button signal: `on_timeout` now sets `view.answer = "__timeout__"` (not `None`) to distinguish timeout from the stop button, which sets `None`. Loop breaks on `None` and sends best-guess on `"__timeout__"`.
+
+### Scheduled orders — cron UX
+- **`dashboard/frontend/src/components/CronInput.tsx`** (new) — Reusable React component with preset buttons (Hourly, Daily 9AM, Daily Midnight, Mon 9AM, Monthly 1st), live human-readable preview via `cronstrue`, and inline error state for invalid expressions.
+- **`dashboard/frontend/src/pages/Schedules.tsx`** — Replaced plain cron text input with `CronInput`; Save button now disabled until cron validates; schedule cards show human-readable description under the raw cron string.
+
+### Scheduled orders — auto-execution
+- **`dashboard/backend/app/scheduler.py`** (new) — `AsyncIOScheduler` singleton that loads all enabled schedules from MongoDB and fires them automatically at their configured cron times. `reload_schedules()` syncs jobs after any CRUD change.
+- **`dashboard/backend/app/routers/schedules.py`** — Extracted `_run_task(task)` helper shared by both the manual trigger endpoint and the scheduler; CRUD handlers made `async`; `sched.reload_schedules()` called after create/update/delete.
+- **`dashboard/backend/app/main.py`** — FastAPI lifespan starts the scheduler on startup and stops it gracefully on shutdown.
+- **`dashboard/backend/requirements.txt`** — Added `apscheduler>=3.10.4`.
+
 ## Known limitations / follow-up
 - Activity feed still uses a 24h TTL (by design); only the current day's messages appear in the dashboard.
-- Cost tracking for plio-max requires verifying `BRIDGECREW_API_URL`/`BRIDGECREW_API_KEY` are set in the bot's runtime environment.
+- Cost tracking requires `BRIDGECREW_API_URL`/`BRIDGECREW_API_KEY` set in the bot's runtime environment.
+- `reload_schedules()` does a synchronous pymongo query from async route handlers — acceptable at current scale but a `motor` migration would be cleaner long-term.
+- Scheduled task auto-execution requires the dashboard backend to be running (Railway or local Docker); the bot-only startup mode has no scheduler.
