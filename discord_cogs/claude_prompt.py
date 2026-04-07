@@ -1062,12 +1062,24 @@ class ClaudePromptCog(commands.Cog):
                 ),
             )
 
+        _STOP_PHRASES = (
+            "i'll handle it", "i will handle it",
+            "let me handle", "i'll take care", "i will take care",
+            "let me modify", "i'll modify", "i will modify",
+            "i have notes", "i'll update", "i will update",
+            "i'll continue", "i will continue",
+        )
+
         # Question loop: collect answer, continue session, repeat if needed
         while pending_question and last_session_id:
             answer = await self._collect_answer(message.channel, pending_question)
             print(f"[Answer] {answer!r}", flush=True)
 
-            # None means the user clicked "I'll handle it" or timed out — proceed with best guess
+            # Explicit opt-out phrases stop the loop so the user can continue manually
+            if answer and answer.strip().lower().rstrip(".!") in _STOP_PHRASES:
+                break
+
+            # None means button click or timeout — proceed with best guess
             if answer is None:
                 answer = "No answer provided — use your best judgment and proceed."
 
