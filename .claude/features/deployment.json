@@ -1,0 +1,18 @@
+{
+  "started_at": "2026-04-05T05:25:41.763965+00:00",
+  "status": "completed",
+  "total_input_tokens": 155183,
+  "total_output_tokens": 19676,
+  "total_cost_usd": 1.4496539999999998,
+  "prompt_count": 3,
+  "session_id": "43977399-a0cd-4f32-943b-7e6e89b6f765",
+  "sessions": [
+    {
+      "session_id": "43977399-a0cd-4f32-943b-7e6e89b6f765",
+      "session_start": "2026-04-05T05:25:41.763949+00:00",
+      "source": "discord"
+    }
+  ],
+  "name": "deployment",
+  "completed_at": "2026-04-05T09:01:24.902816+00:00"
+}

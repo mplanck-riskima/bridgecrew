@@ -1,0 +1,19 @@
+{
+  "started_at": "2026-04-07T06:32:09.325255+00:00",
+  "status": "completed",
+  "total_input_tokens": 2097195,
+  "total_output_tokens": 48687,
+  "total_cost_usd": 9.887476799999996,
+  "prompt_count": 28,
+  "session_id": "368a8e2b-c964-48b8-bede-3c218a28681b",
+  "sessions": [
+    {
+      "session_id": "368a8e2b-c964-48b8-bede-3c218a28681b",
+      "session_start": "2026-04-07T06:32:09.325235+00:00",
+      "source": "discord"
+    }
+  ],
+  "name": "audio-improvements",
+  "bridgecrew_feature_id": "01KNKA8CFCF1TY74B3KQ8YG0PF",
+  "completed_at": "2026-04-10T17:40:42.709708+00:00"
+}

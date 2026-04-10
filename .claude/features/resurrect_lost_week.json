@@ -1,0 +1,18 @@
+{
+  "session_id": "b2dd3cf0-7b47-4f27-9145-9b8f4fae6f76",
+  "started_at": "2026-04-02T01:55:52.226885+00:00",
+  "status": "completed",
+  "total_input_tokens": 3296240,
+  "total_output_tokens": 96787,
+  "total_cost_usd": 45.000006500000005,
+  "prompt_count": 18,
+  "sessions": [
+    {
+      "session_id": "b2dd3cf0-7b47-4f27-9145-9b8f4fae6f76",
+      "session_start": "2026-04-02T01:55:52.226872+00:00",
+      "source": "discord"
+    }
+  ],
+  "name": "resurrect-lost-week",
+  "completed_at": "2026-04-05T05:19:25.881505+00:00"
+}

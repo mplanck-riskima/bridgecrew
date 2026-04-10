@@ -1,0 +1,23 @@
+{
+  "started_at": "2026-04-05T20:45:36.088646+00:00",
+  "status": "active",
+  "total_input_tokens": 2003998,
+  "total_output_tokens": 107660,
+  "total_cost_usd": 11.759327850000002,
+  "prompt_count": 25,
+  "session_id": "315f1861-35f6-46bd-b264-2c918f961ed0",
+  "sessions": [
+    {
+      "session_id": "05d05bbe-475b-429f-9901-9e9c7163a462",
+      "session_start": "2026-04-05T20:45:36.088631+00:00",
+      "source": "discord"
+    },
+    {
+      "session_id": "315f1861-35f6-46bd-b264-2c918f961ed0",
+      "session_start": "2026-04-10T17:47:09.970459+00:00",
+      "source": "discord"
+    }
+  ],
+  "name": "feature-stuff-on-pc",
+  "completed_at": "2026-04-05T22:09:50.124753+00:00"
+}

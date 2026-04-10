@@ -1,0 +1,38 @@
+{
+  "started_at": "2026-04-03T04:06:12.956932+00:00",
+  "status": "completed",
+  "total_input_tokens": 4253298,
+  "total_output_tokens": 140289,
+  "total_cost_usd": 24.860062650000003,
+  "prompt_count": 54,
+  "session_id": "6f486ad3-3121-4929-9061-20dc5b31c2f1",
+  "sessions": [
+    {
+      "session_id": "1abe0b95-2db2-47f5-8b0e-c81a359d508b",
+      "session_start": "2026-04-03T04:06:12.956919+00:00",
+      "source": "discord"
+    },
+    {
+      "session_id": "eb5f9779-a8a5-4895-8404-1e4c653aab80",
+      "session_start": "2026-04-05T09:02:26.549859+00:00",
+      "source": "discord"
+    },
+    {
+      "session_id": "2336f222-59f3-4b28-bd26-70b5aeed3764",
+      "session_start": "2026-04-06T05:42:21.588951+00:00",
+      "source": "discord"
+    },
+    {
+      "session_id": "10b4ee5c-b957-49f4-9aad-705834989221",
+      "session_start": "2026-04-06T06:21:11.158397+00:00",
+      "source": "discord"
+    },
+    {
+      "session_id": "6f486ad3-3121-4929-9061-20dc5b31c2f1",
+      "session_start": "2026-04-07T03:36:11.103990+00:00",
+      "source": "discord"
+    }
+  ],
+  "name": "Bugs & Fixes",
+  "completed_at": "2026-04-07T06:06:22.682322+00:00"
+}
