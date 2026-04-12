@@ -7,7 +7,7 @@ config.json
 venv/
 .idea/
 .claude-bot/
-Plans/
+/Plans/
 *.stackdump
 .discord_uploads/
 
