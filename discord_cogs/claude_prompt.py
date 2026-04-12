@@ -592,33 +592,11 @@ class ClaudePromptCog(commands.Cog):
                     print(flush=True)  # final newline after streaming
                     # Persist session_id and model
                     if event.session_id or event.model:
-                        from core.state import load_project_state, save_project_state, load_feature_index, save_feature_index, load_feature_file, save_feature_file
-
-                        if event.session_id and feature:
-                            feat_data = load_feature_file(project_dir, feature.name)
-                            if feat_data:
-                                old_session_id = feat_data.get("session_id")
-                                feat_data["session_id"] = event.session_id
-                                feat_data["name"] = feature.name
-                                # Update the sessions array entry so session_id-based lookup works
-                                if old_session_id and old_session_id != event.session_id:
-                                    for sess in feat_data.get("sessions", []):
-                                        if sess.get("session_id") == old_session_id:
-                                            sess["session_id"] = event.session_id
-                                            break
-                                save_feature_file(project_dir, feature.name, feat_data)
-                                # Update index sessions routing table
-                                index = load_feature_index(project_dir)
-                                sessions = index.setdefault("sessions", {})
-                                if old_session_id and old_session_id in sessions:
-                                    sessions[event.session_id] = sessions.pop(old_session_id)
-                                elif event.session_id not in sessions:
-                                    sessions[event.session_id] = {
-                                        "feature": feature.name,
-                                        "source": "discord",
-                                        "started_at": feat_data.get("started_at", ""),
-                                    }
-                                save_feature_index(project_dir, index)
+                        from core.state import load_project_state, save_project_state
+                        if event.session_id:
+                            _state = load_project_state(project_dir)
+                            _state["default_session_id"] = event.session_id
+                            save_project_state(project_dir, _state)
 
                         # Save project-level defaults (bot state)
                         state = load_project_state(project_dir)

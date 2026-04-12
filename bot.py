@@ -9,7 +9,6 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from core.claude_runner import ClaudeRunner
-from core.feature_manager import FeatureManager
 from core.project_manager import ProjectManager
 from core.voice_notifier import VoiceNotifier
 
@@ -49,7 +48,6 @@ class ClaudeBot(commands.Bot):
     def __init__(self) -> None:
         super().__init__(command_prefix="!", intents=intents)
         self.claude_runner = ClaudeRunner()
-        self.feature_manager = FeatureManager()
         self.voice_notifier = VoiceNotifier(self)
         self.workspace_dir = Path(WORKSPACE_DIR)
         self.project_manager = ProjectManager(
@@ -78,10 +76,6 @@ class ClaudeBot(commands.Bot):
     async def on_ready(self) -> None:
         log.info("Logged in as %s (ID: %s)", self.user, self.user.id)
         log.info("Workspace: %s", WORKSPACE_DIR)
-
-        # Migrate any old monolithic features.json to split format
-        from core.state import migrate_all_projects
-        migrate_all_projects(WORKSPACE_DIR)
 
         # Auto-scan workspace on startup
         results = await self.project_manager.sync_projects(self)

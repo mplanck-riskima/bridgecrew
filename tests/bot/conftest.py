@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tests.bot.fakes.managers import (
-    FakeFeatureManager, FakeProjectManager, FakeClaudeRunner, FakeVoiceNotifier,
+    FakeProjectManager, FakeClaudeRunner, FakeVoiceNotifier,
 )
 from models.project import Project
 
@@ -50,7 +50,6 @@ def fake_bot(tmp_path):
     (tmp_path / project.name).mkdir(exist_ok=True)
 
     bot = MagicMock()
-    bot.feature_manager = FakeFeatureManager()
     bot.project_manager = pm
     bot.claude_runner = FakeClaudeRunner()
     bot.voice_notifier = FakeVoiceNotifier()

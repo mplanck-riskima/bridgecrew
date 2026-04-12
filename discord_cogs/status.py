@@ -30,7 +30,19 @@ class StatusCog(commands.Cog):
                 return
 
             project_dir = self.bot.project_manager.get_project_dir(project)
-            feature = self.bot.feature_manager.get_current_feature(project_dir)
+            import json as _json
+            _features_dir = project_dir / ".claude" / "features"
+            feature = None
+            if _features_dir.exists():
+                for _fp in _features_dir.glob("*.json"):
+                    try:
+                        _fd = _json.loads(_fp.read_text(encoding="utf-8"))
+                        if _fd.get("status") == "active":
+                            from models.feature import Feature as _Feature
+                            feature = _Feature.from_dict(_fd["name"], _fd)
+                            break
+                    except Exception:
+                        pass
             active_info = self.bot.claude_runner.get_active_info(channel.id)
 
             lines = [f"**Status for `{project.name}`:**"]
@@ -100,7 +112,20 @@ class StatusCog(commands.Cog):
             for name, project in sorted(projects.items()):
                 thread_id = project.thread_id
                 is_busy = self.bot.claude_runner.is_busy(thread_id) if thread_id else False
-                feature = self.bot.feature_manager.get_current_feature(pm.get_project_dir(project))
+                import json as _json
+                _pdir = pm.get_project_dir(project)
+                _fdir = _pdir / ".claude" / "features"
+                feature = None
+                if _fdir.exists():
+                    for _fp in _fdir.glob("*.json"):
+                        try:
+                            _fd = _json.loads(_fp.read_text(encoding="utf-8"))
+                            if _fd.get("status") == "active":
+                                from models.feature import Feature as _Feature
+                                feature = _Feature.from_dict(_fd["name"], _fd)
+                                break
+                        except Exception:
+                            pass
                 subdir_str = f" in `{feature.subdir}/`" if feature and feature.subdir else ""
                 feat_str = f" | feature: `{feature.name}`{subdir_str}" if feature else ""
                 thread_link = f" (<#{thread_id}>)" if thread_id else ""
@@ -227,35 +252,24 @@ class StatusCog(commands.Cog):
             return
 
         project_dir = self.bot.project_manager.get_project_dir(project)
-        feature = self.bot.feature_manager.get_current_feature(project_dir)
+        import json as _json
+        _fdir = project_dir / ".claude" / "features"
+        _active_feat_name = None
+        if _fdir.exists():
+            for _fp in _fdir.glob("*.json"):
+                try:
+                    _fd = _json.loads(_fp.read_text(encoding="utf-8"))
+                    if _fd.get("status") == "active":
+                        _active_feat_name = _fd.get("name")
+                        break
+                except Exception:
+                    pass
 
-        from core.state import load_project_state, save_project_state, load_feature_index, save_feature_index, load_feature_file, save_feature_file
-
-        if feature:
-            # Null session to force a fresh context window; keep cumulative token counts
-            feat_data = load_feature_file(project_dir, feature.name)
-            if feat_data:
-                feat_data["session_id"] = None
-                feat_data["name"] = feature.name
-                save_feature_file(project_dir, feature.name, feat_data)
-            # Remove session from index
-            index = load_feature_index(project_dir)
-            state = load_project_state(project_dir)
-            old_sid = state.get("default_session_id")
-            if old_sid and old_sid in index.get("sessions", {}):
-                del index["sessions"][old_sid]
-                save_feature_index(project_dir, index)
-            label = f"feature `{feature.name}`"
-        else:
-            state = load_project_state(project_dir)
-            state["default_session_id"] = None
-            state["session_usage"] = {
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_cost_usd": 0.0,
-                "prompt_count": 0,
-            }
-            label = "project session"
+        from core.state import load_project_state, save_project_state
+        state = load_project_state(project_dir)
+        state["default_session_id"] = None
+        save_project_state(project_dir, state)
+        label = f"feature `{_active_feat_name}`" if _active_feat_name else "project session"
 
         state["default_session_id"] = None
         save_project_state(project_dir, state)

@@ -26,8 +26,19 @@ class ProjectsCog(commands.Cog):
             thread_link = f"<#{project.thread_id}>" if project.thread_id else "no thread"
             # Get active feature
             project_dir = pm.get_project_dir(project)
-            feature = self.bot.feature_manager.get_current_feature(project_dir)
-            feature_str = f" | feature: `{feature.name}`" if feature else ""
+            import json as _json
+            _features_dir = project_dir / ".claude" / "features"
+            feature_name = None
+            if _features_dir.exists():
+                for _fp in _features_dir.glob("*.json"):
+                    try:
+                        _fd = _json.loads(_fp.read_text(encoding="utf-8"))
+                        if _fd.get("status") == "active":
+                            feature_name = _fd.get("name")
+                            break
+                    except Exception:
+                        pass
+            feature_str = f" | feature: `{feature_name}`" if feature_name else ""
             lines.append(f"- **{name}** → {thread_link}{feature_str}")
 
         await interaction.response.send_message("\n".join(lines))
