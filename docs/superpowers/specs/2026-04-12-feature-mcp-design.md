@@ -102,12 +102,10 @@ Registered globally in `~/.claude/claude_desktop_config.json` (and any other MCP
 ### `.claude/features.json`
 
 ```json
-{
-  "current_feature": "my-feature"
-}
+{}
 ```
 
-The `sessions` map (old routing table) is removed. Session routing lives in MCP server memory only.
+Both the `current_feature` field and the `sessions` routing map are removed. The MCP owns all session routing in memory. The file is kept as an empty object for backward compatibility (tools that check for its existence won't break), but nothing writes to it.
 
 ### `features/<name>.md`
 
@@ -161,7 +159,7 @@ The tool description contains rich instructions for what the summary should cove
 
 > The summary should include: what the feature set out to do, what was actually built, key technical decisions and why they were made, any known gaps or follow-up work, and notable files changed. Aim for 200–400 words — enough for a future Claude session to get full context without reading the git history.
 
-Marks the session's status as `completed`. Updates `features.json` `current_feature` to null if no other active sessions remain on this project.
+Marks the session's status as `completed`. Removes the session from the in-memory routing table.
 
 ### `feature_add_milestone(project_dir, session_id, text)`
 
