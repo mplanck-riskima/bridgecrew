@@ -6,8 +6,25 @@ from discord.ext import commands
 from pathlib import Path
 
 from core.bridgecrew_client import report_feature_completed, report_feature_started
-from core.state import load_project_state, save_project_state, load_feature_index
+from core.state import load_project_state, save_project_state
 from discord_cogs import captains_only
+from models.feature import Feature
+
+
+def _list_feature_dicts(project_dir: Path) -> list[dict]:
+    """Read all feature JSON files from .claude/features/. Returns list of raw dicts."""
+    import json as _json
+    features_dir = project_dir / ".claude" / "features"
+    result = []
+    if features_dir.exists():
+        for fp in sorted(features_dir.glob("*.json")):
+            try:
+                data = _json.loads(fp.read_text(encoding="utf-8"))
+                if data.get("name"):
+                    result.append(data)
+            except Exception:
+                pass
+    return result
 
 
 class SubdirSelect(discord.ui.Select):
@@ -25,30 +42,23 @@ class SubdirSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         subdir = self.values[0] if self.values[0] != "__root__" else None
 
-        # Auto-complete any currently active features
-        cog = self.bot.cogs.get("FeaturesCog")
-        auto_completed = self.bot.feature_manager.auto_complete_active_features(
-            self.project_dir, exclude_name=self.feature_name
-        )
-        if cog and auto_completed:
-            for completed_feat in auto_completed:
-                asyncio.create_task(cog._handle_auto_completed(interaction.channel, self.project_dir, completed_feat))
+        # Store pending op — Claude will call feature_start on next message
+        state = load_project_state(self.project_dir)
+        state["pending_feature_op"] = {
+            "action": "start",
+            "name": self.feature_name,
+            "subdir": subdir,
+        }
+        save_project_state(self.project_dir, state)
 
-        feature = self.bot.feature_manager.start_feature(self.project_dir, self.feature_name, subdir=subdir)
         scope = f"`{subdir}/`" if subdir else "project root"
-        completed_msg = ""
-        if auto_completed:
-            names = ", ".join(f"`{f.name}`" for f in auto_completed)
-            completed_msg = f"\nCompleted: {names}"
         await interaction.response.edit_message(
             content=(
-                f"Feature **`{feature.name}`** started in {scope}.\n"
-                f"Session ID: `{feature.session_id[:8]}...`{completed_msg}"
+                f"Ready to start **`{self.feature_name}`** in {scope}.\n"
+                f"Send your first message — Claude will begin the feature automatically."
             ),
             view=None,
         )
-        if cog:
-            asyncio.create_task(cog._report_feature_started(self.project_dir, feature))
 
 
 class SubdirView(discord.ui.View):
@@ -74,28 +84,15 @@ class FeatureSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         name = self.values[0]
 
-        # Auto-complete any currently active features (except the one being resumed)
-        cog = self.bot.cogs.get("FeaturesCog")
-        auto_completed = self.bot.feature_manager.auto_complete_active_features(
-            self.project_dir, exclude_name=name
-        )
-        if cog and auto_completed:
-            for completed_feat in auto_completed:
-                asyncio.create_task(cog._handle_auto_completed(interaction.channel, self.project_dir, completed_feat))
+        # Store pending op — Claude will call feature_resume on next message
+        state = load_project_state(self.project_dir)
+        state["pending_feature_op"] = {"action": "resume", "name": name}
+        save_project_state(self.project_dir, state)
 
-        feature = self.bot.feature_manager.resume_feature(self.project_dir, name)
-        if not feature:
-            await interaction.response.edit_message(content=f"Feature `{name}` not found.", view=None)
-            return
-        scope = f" in `{feature.subdir}/`" if feature.subdir else ""
-        completed_msg = ""
-        if auto_completed:
-            names = ", ".join(f"`{f.name}`" for f in auto_completed)
-            completed_msg = f"\nCompleted: {names}"
         await interaction.response.edit_message(
             content=(
-                f"Resumed feature **`{feature.name}`**{scope}.\n"
-                f"Session ID: `{feature.session_id[:8]}...`{completed_msg}"
+                f"Ready to resume **`{name}`**.\n"
+                f"Send a message to continue — Claude will resume the feature automatically."
             ),
             view=None,
         )
@@ -141,15 +138,34 @@ class DiscardConfirmView(discord.ui.View):
 
     @discord.ui.button(label="Discard", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        feat = self.bot.feature_manager.discard_feature(self.project_dir, self.feature_name)
-        if not feat:
+        import json as _json
+        import re as _re
+        features_dir = self.project_dir / ".claude" / "features"
+
+        # Use snake_case filename convention
+        snake = self.feature_name.lower().replace("&", "and")
+        snake = _re.sub(r"[-\s]+", "_", snake)
+        snake = _re.sub(r"[^a-z0-9_]", "", snake)
+        snake = _re.sub(r"_+", "_", snake).strip("_") or "unnamed"
+        feat_path = features_dir / f"{snake}.json"
+
+        feat_data = None
+        if feat_path.exists():
+            try:
+                feat_data = _json.loads(feat_path.read_text(encoding="utf-8"))
+                feat_path.unlink()
+            except Exception:
+                pass
+
+        if not feat_data:
             await interaction.response.edit_message(content=f"Feature `{self.feature_name}` not found.", view=None)
             return
 
+        subdir = feat_data.get("subdir")
         results = []
 
         # Archive feature doc
-        archived = _archive_feature_doc(self.project_dir, self.feature_name, feat.subdir)
+        archived = _archive_feature_doc(self.project_dir, self.feature_name, subdir)
         if archived:
             results.append(f"Archived `{archived}`")
 
@@ -230,7 +246,8 @@ class SessionSelect(discord.ui.Select):
         session_info = self.sessions.get(session_id)
 
         # Step 2: Pick or create a feature to associate with
-        features = self.bot.feature_manager.list_features(self.project_dir)
+        _feat_dicts = _list_feature_dicts(self.project_dir)
+        features = [Feature.from_dict(f["name"], f) for f in _feat_dicts]
         view = FeatureForSessionView(features, session_id, self.project_dir, self.bot)
         preview = session_info.first_message[:80] if session_info else session_id[:12]
         await interaction.response.edit_message(
@@ -264,20 +281,26 @@ class FeatureForSessionSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         choice = self.values[0]
         if choice == "__new__":
-            # Ask for name via modal
             modal = NewFeatureModal(self.cli_session_id, self.project_dir, self.bot)
             await interaction.response.send_modal(modal)
             return
 
-        # Wire the CLI session into the chosen feature
-        feat = self.bot.feature_manager.register_cli_session(self.project_dir, self.cli_session_id, choice)
-        if not feat:
+        # Check feature exists
+        _feat_dicts = _list_feature_dicts(self.project_dir)
+        if not any(f.get("name") == choice for f in _feat_dicts):
             await interaction.response.edit_message(content=f"Feature `{choice}` not found.", view=None)
             return
+
+        # Store pending resume op + set default session to the CLI session id
+        state = load_project_state(self.project_dir)
+        state["pending_feature_op"] = {"action": "resume", "name": choice}
+        state["default_session_id"] = self.cli_session_id
+        save_project_state(self.project_dir, state)
+
         await interaction.response.edit_message(
             content=(
-                f"Session `{self.cli_session_id[:12]}...` linked to **`{choice}`**.\n"
-                f"Your next prompt will resume this CLI session."
+                f"Session `{self.cli_session_id[:12]}...` will resume **`{choice}`**.\n"
+                f"Send a message in this thread to continue."
             ),
             view=None,
         )
@@ -304,13 +327,14 @@ class NewFeatureModal(discord.ui.Modal, title="New Feature"):
             await interaction.response.send_message("Feature name cannot be empty.", ephemeral=True)
             return
 
-        # Start the feature, then register the CLI session
-        self.bot.feature_manager.start_feature(self.project_dir, name)
-        feat = self.bot.feature_manager.register_cli_session(self.project_dir, self.cli_session_id, name)
+        state = load_project_state(self.project_dir)
+        state["pending_feature_op"] = {"action": "start", "name": name}
+        state["default_session_id"] = self.cli_session_id
+        save_project_state(self.project_dir, state)
 
         await interaction.response.send_message(
-            f"Created feature **`{name}`** and linked session `{self.cli_session_id[:12]}...`.\n"
-            f"Your next prompt will resume this CLI session.",
+            f"Ready to create **`{name}`** and resume session `{self.cli_session_id[:12]}...`.\n"
+            f"Send a message in the thread to begin.",
             ephemeral=True,
         )
 
@@ -352,20 +376,41 @@ class FeaturesCog(commands.Cog):
             ),
         )
         if feature_id:
-            from core.state import load_feature_file, save_feature_file
-            fdata = load_feature_file(project_dir, feature.name)
-            if fdata:
-                fdata["bridgecrew_feature_id"] = feature_id
-                fdata["name"] = feature.name
-                save_feature_file(project_dir, feature.name, fdata)
+            import json as _json
+            import re as _re
+            import os
+            _snake = feature.name.lower().replace("&", "and")
+            _snake = _re.sub(r"[-\s]+", "_", _snake)
+            _snake = _re.sub(r"[^a-z0-9_]", "", _snake)
+            _snake = _re.sub(r"_+", "_", _snake).strip("_") or "unnamed"
+            _fp = project_dir / ".claude" / "features" / f"{_snake}.json"
+            if _fp.exists():
+                try:
+                    _fd = _json.loads(_fp.read_text(encoding="utf-8"))
+                    _fd["bridgecrew_feature_id"] = feature_id
+                    _tmp = _fp.with_suffix(".tmp")
+                    _tmp.write_text(_json.dumps(_fd, indent=2), encoding="utf-8")
+                    os.replace(_tmp, _fp)
+                except Exception:
+                    pass
 
     async def _report_feature_completed(self, project_dir: Path, feature) -> None:
         """Report feature completion to BridgeCrew API."""
         bc_feature_id = feature.bridgecrew_feature_id
         if not bc_feature_id:
             # Try loading from feature file
-            from core.state import load_feature_file
-            fdata = load_feature_file(project_dir, feature.name)
+            import json as _json, re as _re
+            _snake = feature.name.lower().replace("&", "and")
+            _snake = _re.sub(r"[-\s]+", "_", _snake)
+            _snake = _re.sub(r"[^a-z0-9_]", "", _snake)
+            _snake = _re.sub(r"_+", "_", _snake).strip("_") or "unnamed"
+            _fp = project_dir / ".claude" / "features" / f"{_snake}.json"
+            fdata = None
+            if _fp.exists():
+                try:
+                    fdata = _json.loads(_fp.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
             if fdata:
                 bc_feature_id = fdata.get("bridgecrew_feature_id", "")
         if not bc_feature_id:
@@ -434,21 +479,13 @@ class FeaturesCog(commands.Cog):
                 ephemeral=True,
             )
         else:
-            # No subdirectories — start at project root directly
-            # Auto-complete active features first
-            auto_completed = self.bot.feature_manager.auto_complete_active_features(project_dir, exclude_name=name)
-            for completed_feat in auto_completed:
-                asyncio.create_task(self._handle_auto_completed(interaction.channel, project_dir, completed_feat))
-
-            feature = self.bot.feature_manager.start_feature(project_dir, name)
-            asyncio.create_task(self._report_feature_started(project_dir, feature))
-            completed_msg = ""
-            if auto_completed:
-                names = ", ".join(f"`{f.name}`" for f in auto_completed)
-                completed_msg = f"\nCompleted: {names}"
+            # No subdirectories — store pending op and let Claude call feature_start
+            state = load_project_state(project_dir)
+            state["pending_feature_op"] = {"action": "start", "name": name}
+            save_project_state(project_dir, state)
             await interaction.response.send_message(
-                f"Feature **`{feature.name}`** started.\n"
-                f"Session ID: `{feature.session_id[:8]}...`{completed_msg}"
+                f"Ready to start **`{name}`**. Send your first message — Claude will begin the feature automatically.",
+                ephemeral=True,
             )
 
     @app_commands.command(name="resume-feature", description="Resume an existing or completed feature")
@@ -465,7 +502,8 @@ class FeaturesCog(commands.Cog):
             )
             return
 
-        features = self.bot.feature_manager.list_features(project_dir)
+        _feat_dicts = _list_feature_dicts(project_dir)
+        features = [Feature.from_dict(f["name"], f) for f in _feat_dicts]
         if not features:
             await interaction.response.send_message("No features yet. Use `/start-feature` to create one.", ephemeral=True)
             return
@@ -488,33 +526,17 @@ class FeaturesCog(commands.Cog):
             )
             return
 
-        from core.state import load_project_state
-        session_id = load_project_state(project_dir).get("default_session_id")
-        feature = self.bot.feature_manager.complete_feature(project_dir, name, session_id=session_id)
-        if not feature:
-            if name:
-                await interaction.response.send_message(f"Feature `{name}` not found.", ephemeral=True)
-            else:
-                await interaction.response.send_message("No active feature to complete.", ephemeral=True)
-            return
+        state = load_project_state(project_dir)
+        op: dict = {"action": "complete"}
+        if name:
+            op["name"] = name
+        state["pending_feature_op"] = op
+        save_project_state(project_dir, state)
 
         await interaction.response.send_message(
-            f"Feature **`{feature.name}`** marked as completed. Generating feature summary..."
+            "Send a final message describing what was accomplished — Claude will complete the feature and write the summary.",
+            ephemeral=True,
         )
-
-        asyncio.create_task(self._report_feature_completed(project_dir, feature))
-
-        prompt_cog = self.bot.cogs.get("ClaudePromptCog")
-        if prompt_cog and project:
-            asyncio.create_task(
-                prompt_cog.run_feature_summary_prompt(interaction.channel, project, feature)
-            )
-
-        if interaction.guild:
-            asyncio.create_task(self.bot.voice_notifier.voice_event(
-                interaction.guild, "feature_complete",
-                f"Feature {feature.name} is complete in {project.name}."
-            ))
 
     @captains_only()
     @app_commands.command(name="resume-session", description="Resume a CLI session from this machine in Discord")
@@ -533,11 +555,15 @@ class FeaturesCog(commands.Cog):
             return
 
         # Annotate sessions with feature names if already linked
-        index = load_feature_index(project_dir)
+        _feat_dicts = _list_feature_dicts(project_dir)
+        _session_to_feature = {}
+        for fd in _feat_dicts:
+            for sess in fd.get("sessions", []):
+                sid = sess.get("session_id")
+                if sid:
+                    _session_to_feature[sid] = fd.get("name")
         for s in sessions:
-            session_entry = index.get("sessions", {}).get(s.session_id)
-            if session_entry:
-                s.feature = session_entry.get("feature")
+            s.feature = _session_to_feature.get(s.session_id)
 
         view = SessionSelectView(sessions, project_dir, self.bot)
         await interaction.response.send_message(
@@ -554,7 +580,8 @@ class FeaturesCog(commands.Cog):
             await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
             return
 
-        features = self.bot.feature_manager.list_features(project_dir)
+        _feat_dicts = _list_feature_dicts(project_dir)
+        features = [Feature.from_dict(f["name"], f) for f in _feat_dicts]
         if not features:
             await interaction.response.send_message("No features to discard.", ephemeral=True)
             return
@@ -570,7 +597,8 @@ class FeaturesCog(commands.Cog):
             await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
             return
 
-        features = self.bot.feature_manager.list_features(project_dir)
+        _feat_dicts = _list_feature_dicts(project_dir)
+        features = [Feature.from_dict(f["name"], f) for f in _feat_dicts]
 
         if not features:
             await interaction.response.send_message("No features yet. Use `/start-feature` to create one.")
