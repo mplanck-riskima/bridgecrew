@@ -11,6 +11,7 @@ from core.discord_streamer import DiscordStreamer
 from core.usage_tracker import fmt_time_until
 from discord import app_commands
 from discord_cogs import has_captain_role, captains_only, REQUIRED_ROLE
+from models.feature import Feature
 
 SEND_FILE_PATTERN = re.compile(r"\[send-file:\s*(.+?)\]")
 ASK_USER_PATTERN = re.compile(r"\[ask-user:\s*(.+?)\]")
@@ -89,6 +90,17 @@ class AskUserView(discord.ui.View):
 
 BUGS_AND_FIXES = "Bugs & Fixes"
 
+from dataclasses import dataclass as _dataclass
+
+@_dataclass
+class _PendingFeature:
+    name: str
+    subdir: str | None = None
+    session_id: str | None = None
+    total_cost_usd: float = 0.0
+    prompt_count: int = 0
+    bridgecrew_feature_id: str | None = None
+
 
 class FeatureGateSelect(discord.ui.Select):
     """Dropdown shown when a prompt arrives with no active feature."""
@@ -123,7 +135,6 @@ class FeatureGateSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         choice = self.values[0]
-        fm = self.bot.feature_manager
 
         if choice == "__new__":
             # Send a modal to collect the feature name
@@ -132,16 +143,26 @@ class FeatureGateSelect(discord.ui.Select):
             return
 
         # Resume or create Bugs & Fixes / existing feature
-        existing = fm.list_features(self.project_dir)
-        exists = any(f.name == choice for f in existing)
+        from core.state import load_project_state, save_project_state as _save_ps
+        _existing_names = set()
+        _features_dir = self.project_dir / ".claude" / "features"
+        if _features_dir.exists():
+            import json as _json_fc
+            for _fp in _features_dir.glob("*.json"):
+                try:
+                    _fd = _json_fc.loads(_fp.read_text())
+                    _existing_names.add(_fd.get("name", ""))
+                except Exception:
+                    pass
+        exists = choice in _existing_names
 
-        if exists:
-            self.selected_feature = fm.resume_feature(self.project_dir, choice)
-        else:
-            self.selected_feature = fm.start_feature(self.project_dir, choice)
+        _state = load_project_state(self.project_dir)
+        _state["pending_feature_op"] = {"action": "resume" if exists else "start", "name": choice}
+        _save_ps(self.project_dir, _state)
+        self.selected_feature = _PendingFeature(name=choice)
 
-        scope = f" in `{self.selected_feature.subdir}/`" if self.selected_feature.subdir else ""
-        action = "Resumed" if exists else "Started"
+        scope = ""
+        action = "Will resume" if exists else "Will start"
         await interaction.response.edit_message(
             content=f"{action} feature **`{self.selected_feature.name}`**{scope}. Processing prompt...",
             view=None,
@@ -161,8 +182,11 @@ class NewFeatureModal(discord.ui.Modal, title="New Feature"):
         if not name:
             await interaction.response.send_message("Feature name cannot be empty.", ephemeral=True)
             return
-        fm = self.gate_select.bot.feature_manager
-        self.gate_select.selected_feature = fm.start_feature(self.gate_select.project_dir, name)
+        from core.state import load_project_state, save_project_state as _save_ps_modal
+        _state = load_project_state(self.gate_select.project_dir)
+        _state["pending_feature_op"] = {"action": "start", "name": name}
+        _save_ps_modal(self.gate_select.project_dir, _state)
+        self.gate_select.selected_feature = _PendingFeature(name=name)
         await interaction.response.edit_message(
             content=f"Started feature **`{name}`**. Processing prompt...",
             view=None,
@@ -286,8 +310,19 @@ class ClaudePromptCog(commands.Cog):
             project_dir = pm.get_project_dir(project)
             project_state = load_project_state(project_dir)
             session_id = project_state.get("default_session_id")
-            feature = self.bot.feature_manager.get_current_feature(project_dir, session_id=session_id)
-            feat_str = f" (active feature: {feature.name})" if feature else ""
+            import json as _json_tmp
+            _features_dir = project_dir / ".claude" / "features"
+            _active_feat_name = None
+            if _features_dir.exists():
+                for _fp in _features_dir.glob("*.json"):
+                    try:
+                        _fd = _json_tmp.loads(_fp.read_text())
+                        if _fd.get("status") == "active":
+                            _active_feat_name = _fd.get("name")
+                            break
+                    except Exception:
+                        pass
+            feat_str = f" (active feature: {_active_feat_name})" if _active_feat_name else ""
             path_str = f" — path: `{project_dir}`" if include_paths else ""
             lines.append(f"- {name}: thread <#{project.thread_id}>{feat_str}{path_str}")
 
@@ -622,13 +657,23 @@ class ClaudePromptCog(commands.Cog):
                             warning = ""
 
                         # Accumulate cost for the session/feature (still tracked, just not shown)
-                        totals = self.bot.feature_manager.accumulate_tokens(
-                            project_dir,
-                            input_tokens=context_fill,
-                            output_tokens=event.output_tokens or 0,
-                            cost_usd=event.cost_usd or 0.0,
-                            feature_name=feature.name if feature else None,
-                        )
+                        _out_tokens = event.output_tokens or 0
+                        _cost = event.cost_usd or 0.0
+                        if feature and default_session_id:
+                            from core.mcp_client import post_cost as _post_cost
+                            asyncio.create_task(_post_cost(
+                                project_dir,
+                                session_id=default_session_id,
+                                cost_usd=_cost,
+                                input_tokens=context_fill,
+                                output_tokens=_out_tokens,
+                            ))
+                        totals = {
+                            "total_cost_usd": (getattr(feature, "total_cost_usd", 0.0) or 0.0) + _cost,
+                            "total_input_tokens": context_fill,
+                            "total_output_tokens": _out_tokens,
+                            "prompt_count": (getattr(feature, "prompt_count", 0) or 0) + 1,
+                        }
 
                         # Report cost to BridgeCrew dashboard (fire-and-forget, non-blocking)
                         if event.cost_usd:
@@ -935,11 +980,18 @@ class ClaudePromptCog(commands.Cog):
         preferred_model = state.get("preferred_model")
 
         # Get active feature for this Discord session by matching the last known session_id
-        feature = self.bot.feature_manager.get_current_feature(project_dir, session_id=default_session_id) if project else None
+        if project and default_session_id:
+            from core.mcp_client import get_session_feature as _get_sf
+            _feat_dict = await _get_sf(project_dir, default_session_id)
+            feature = Feature.from_dict(_feat_dict["name"], _feat_dict) if _feat_dict else None
+        else:
+            feature = None
 
         # Gate: require a feature selection for project threads
         if project and not feature:
-            features = self.bot.feature_manager.list_features(project_dir)
+            from core.mcp_client import get_features as _get_feats
+            _raw_feats = await _get_feats(project_dir)
+            features = [Feature.from_dict(f["name"], f) for f in _raw_feats if f.get("name")]
             view = FeatureGateView(features, project_dir, self.bot)
             gate_msg = await message.channel.send(
                 "No active feature — pick one before I start working:",
@@ -1110,14 +1162,6 @@ class ClaudePromptCog(commands.Cog):
                 guild=guild,
                 project_name=project_name,
             )
-
-        # Log to history
-        self.bot.feature_manager.add_history(
-            project_dir,
-            user=str(message.author),
-            prompt_summary=prompt,
-            feature_name=feature.name if feature else None,
-        )
 
         # Clean up downloaded attachments
         if downloaded_files:
