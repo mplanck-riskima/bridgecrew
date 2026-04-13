@@ -35,15 +35,15 @@ skip_no_server = pytest.mark.skipif(
 
 @pytest.fixture
 def live_project(tmp_path):
-    """Register a fresh temp project with the live server and yield (path, client)."""
-    if not _server_available():
-        pytest.skip("feature-mcp server not running on localhost:8765 — skipping smoke tests")
+    """Register a fresh temp project with the live server and yield (path, client).
 
+    Callers must use @skip_no_server to avoid reaching this fixture when the server is down.
+    """
     (tmp_path / ".claude" / "features").mkdir(parents=True)
     client = httpx.Client(base_url=SERVER_URL, timeout=10.0)
 
     r = client.post("/api/projects", json={"project_dir": str(tmp_path)})
-    assert r.status_code == 200, f"Failed to register temp project: {r.text}"
+    assert r.status_code == 200, f"Failed to register temp project (status {r.status_code}): {r.text[:200]}"
 
     yield tmp_path, client
 
