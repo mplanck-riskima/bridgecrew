@@ -1,18 +1,26 @@
 # feature-stuff-on-pc
 
-**Status:** Completed
-**Started:** 2026-04-05
-**Completed:** 2026-04-05
+**Started:** 2026-04-05  
+**Completed:** 2026-04-13  
+**Cost:** $24.0033
 
-## Goal
+## Summary
 
-Bring the Discord bot's feature tracking workflow to Claude CLI on any PC. When working directly in a terminal, Claude should enforce the same lifecycle discipline as bot sessions — tracking features, auto-completing displaced ones, and writing summaries on completion — with a one-command setup that stays in sync as the lifecycle rules evolve.
+CLI slash commands and setup script that bring the bot's feature lifecycle workflow to Claude CLI on any PC, with the bot repo as the single source of truth. The feature expanded mid-session to also migrate the Discord bot itself from the old `feature_manager.py` to the `feature-mcp` MCP server — making session-based feature tracking consistent across both CLI and bot contexts.
 
-## What Was Built
+### CLI / PC setup
 
-A canonical lifecycle rules doc (`docs/feature-lifecycle.md`) serves as the single source of truth. A pure-Python generator script (`scripts/generate_claude_commands.py`) reads that doc and renders five Claude slash commands into `~/.claude/commands/`. A setup script (`setup-claude-pc.sh`) runs the generator, installs the commands, and merges the lifecycle rules into `~/.claude/CLAUDE.md`. Re-running the setup script on any PC regenerates everything from the current bot repo state.
+A canonical lifecycle rules doc (`docs/feature-lifecycle.md`) serves as the single source of truth. A pure-Python generator script (`scripts/generate_claude_commands.py`) reads that doc and renders five Claude slash commands into `~/.claude/commands/`. A setup script (`setup-claude-pc.sh`) runs the generator, installs the commands, merges the lifecycle rules into `~/.claude/CLAUDE.md`, and writes the `enabledMcpjsonServers` entry into `settings.json` to wire the feature-mcp server automatically.
 
-Two bot bugs were also fixed: queued messages during feature summary runs now show a human-readable label explaining the delay, and a `NameError` (`thread_id` undefined) in the feature gate was corrected to use `message.channel.id`.
+### Bot migration to feature-mcp
+
+- Removed `core/feature_manager.py` and all feature I/O from `core/state.py`
+- `core/mcp_client.py`: async httpx wrapper the bot uses to talk to the feature-mcp REST API
+- `discord_cogs/features.py`: all lifecycle operations now call `run_feature_init_session` which starts a real Claude CLI session that registers with the MCP server immediately
+- `discord_cogs/claude_prompt.py`: added `run_feature_init_session` and `run_feature_complete_session`; fixed ask-user/send-file marker stripping before `finalize()`
+- `feature-mcp/rest_api.py`: six new REST lifecycle endpoints (register project, start, resume, complete, discard, milestone) + 15 new integration tests
+- `feature-mcp/tests/test_e2e_lifecycle.py`: 15 in-process E2E lifecycle tests (FakeMCP + TestClient)
+- `tests/e2e/test_feature_mcp.py`: smoke tests against the live server (skip gracefully when server absent)
 
 ## Key Files
 
@@ -20,26 +28,18 @@ Two bot bugs were also fixed: queued messages during feature summary runs now sh
 |---|---|
 | `docs/feature-lifecycle.md` | Canonical lifecycle rules — source of truth for generator |
 | `scripts/generate_claude_commands.py` | Renders 5 CLI command `.md` files from the lifecycle doc |
-| `setup-claude-pc.sh` | One-command setup: generates commands + merges `~/.claude/CLAUDE.md` |
-| `tests/bot/test_generate_claude_commands.py` | 19 tests covering the generator (TDD) |
-| `conftest.py` | Root conftest adding `scripts/` to Python path for tests |
-| `docs/superpowers/specs/2026-04-05-pc-feature-lifecycle-design.md` | Design spec |
-| `docs/superpowers/plans/2026-04-05-pc-feature-lifecycle.md` | Implementation plan |
-
-**Bot fixes:**
-- `discord_cogs/claude_prompt.py` — system run labels for queue messages; feature gate `NameError` fix
-- `dashboard/Dockerfile` — multi-stage production build (Node → Python)
-- `railway.toml` — Railway deployment config
+| `setup-claude-pc.sh` | One-command setup: generate commands, merge CLAUDE.md, wire MCP server |
+| `core/mcp_client.py` | Async httpx wrapper for the feature-mcp REST API |
+| `discord_cogs/claude_prompt.py` | `run_feature_init_session`, `run_feature_complete_session` |
+| `discord_cogs/features.py` | Discord slash commands driving the feature lifecycle |
+| `feature-mcp/rest_api.py` | Six REST lifecycle endpoints |
+| `feature-mcp/tests/test_e2e_lifecycle.py` | In-process E2E lifecycle tests |
+| `tests/e2e/test_feature_mcp.py` | Live-server smoke tests |
 
 ## Design Decisions
 
-- **Bot repo as source of truth.** Rather than hand-maintaining separate CLI commands, the generator reads `docs/feature-lifecycle.md` and injects the lifecycle rules (especially the summary format) into each command's instruction text. Lifecycle changes propagate by re-running `setup-claude-pc.sh`.
-- **Shared state, no sync.** Feature state already lived in `<project>/.claude/features/` — both the bot and CLI commands read/write the same files. No migration or sync mechanism was needed.
-- **Pure stdlib generator.** No third-party dependencies; the generator is a single importable Python module, making it easy to test and portable across machines.
-- **CLAUDE.md merge via marked block.** The setup script writes a `# BEGIN: feature-lifecycle ... # END: feature-lifecycle` block into `~/.claude/CLAUDE.md`, preserving any existing user content outside the block.
-
-## Known Limitations / Follow-up
-
-- The CLI slash commands tell Claude what to do via markdown instructions — they rely on Claude's judgment to execute the steps correctly (read/write JSON, run git commands). There is no programmatic enforcement; a badly-worded prompt or a confused Claude could deviate.
-- `setup-claude-pc.sh` requires the bot repo to be cloned on the PC. If the repo is not present, the commands cannot be regenerated.
-- The `python3` alias on Windows may intercept `command -v python3` before the real interpreter (Windows Store stub). A workaround shim was added during setup; a future improvement could detect and skip the Store stub more robustly.
+- **Session ID as anchor:** The MCP server maps `session_id → feature` so every Claude CLI session always knows which feature it belongs to with no guessing or state-file polling.
+- **Bot repo as source of truth:** `setup-claude-pc.sh` regenerates CLI commands from the current bot repo state so lifecycle changes propagate automatically to every PC on next setup run.
+- **REST API for the bot, MCP SSE for Claude CLI:** Both sides share the same `FeatureStore`; the bot uses plain HTTP, Claude sessions use MCP tool calls. No duplication of logic.
+- **Fallback for stale sessions:** `get_session_feature` falls back to any active feature when the exact session ID doesn't match (handles bot restarts where session ID changes mid-feature).
+- **Pure stdlib generator:** No third-party dependencies in the generator; easy to test and portable across machines.

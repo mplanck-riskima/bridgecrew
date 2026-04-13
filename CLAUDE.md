@@ -24,7 +24,7 @@ When you receive a message in a project thread, you have full access to that pro
 You can attach files from the project directory to the Discord thread by including this marker anywhere in your response:
 
 ```
-[send-file: path/to/file.ext]
+[send-file: /absolute/path/to/file.ext]
 ```
 
 The bot will strip the marker and upload the file as a Discord attachment. Use this when:
@@ -32,7 +32,7 @@ The bot will strip the marker and upload the file as a Discord attachment. Use t
 - You've generated an image, PDF, or binary file they need to download
 - A file would be easier to review as a download than inline code
 
-The path must be relative to the project root. Multiple `[send-file: ...]` markers can be used in one response.
+The path must be an absolute path (e.g. `M:/bridgecrew/output/report.pdf`). Multiple `[send-file: ...]` markers can be used in one response.
 
 ## Dashboard
 
@@ -67,5 +67,5 @@ The project includes a monitoring dashboard at `dashboard/` with a React fronten
 - **Bugs & Fixes**: Catch-all session covering voice notifications, unified feature tracking across CLI and Discord, RBAC protections, footer improvements, and various bot reliability fixes. See `features/Bugs & Fixes.md`.
 - **deploy**: Setup and launch scripts (`setup.sh`, `startup.sh`, `dashboard/startup.sh`) for one-command installation and unified startup of the bot and dashboard, plus repo cleanup for public sharing. See `features/deploy.md`.
 - **deployment**: Multi-stage production Dockerfile and `railway.toml` enabling one-click Railway deployment of the dashboard (React + FastAPI) as a single service. See `features/deployment.md`.
-- **feature-stuff-on-pc**: CLI slash commands and a setup script that bring the bot's feature lifecycle workflow to Claude CLI on any PC, with the bot repo as the single source of truth. See `features/feature-stuff-on-pc.md`.
+- **feature-stuff-on-pc**: CLI slash commands and setup script that bring the bot's feature lifecycle workflow to Claude CLI on any PC, plus migration of the Discord bot's feature tracking to the feature-mcp MCP server for session-based consistency. See `features/feature-stuff-on-pc.md`.
 - **audio-improvements**: Replaced crackling `audioop` PCM resampling with FFmpeg MP3 pipeline and added configurable SFX duration/influence for ElevenLabs audio. See `features/audio-improvements.md`.
