@@ -1,267 +1,83 @@
 #!/usr/bin/env python3
 """
-Generate Claude CLI slash command files from docs/feature-lifecycle.md.
+Generate Claude CLI slash command files and update ~/.claude/CLAUDE.md for the
+feature-mcp workflow.
 
 Usage:
-    python scripts/generate_claude_commands.py [--output-dir DIR] [--lifecycle-doc PATH]
+    python scripts/generate_claude_commands.py [--output-dir DIR] [--claude-md PATH]
 
 Defaults:
-    --output-dir     ~/.claude/commands
-    --lifecycle-doc  docs/feature-lifecycle.md (relative to repo root)
+    --output-dir  ~/.claude/commands
+    --claude-md   ~/.claude/CLAUDE.md
 """
 import argparse
+import json
 import re
-import sys
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-def extract_section(text: str, heading: str) -> str:
-    """Extract a ## section from markdown text. Returns the section body (no heading line)."""
-    pattern = re.compile(
-        rf"^## {re.escape(heading)}\s*\n(.*?)(?=^## |\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    m = pattern.search(text)
-    return m.group(1).strip() if m else ""
-
-
-def load_lifecycle_doc(path: Path) -> str:
-    if not path.exists():
-        print(f"ERROR: lifecycle doc not found at {path}", file=sys.stderr)
-        sys.exit(1)
-    return path.read_text(encoding="utf-8")
-
-
 # ── Command templates ─────────────────────────────────────────────────────────
-# Each template references {SUMMARY_FORMAT} and {SNAKE_RULE} which are
-# injected at render time.
 
 _START_FEATURE = """\
 Start a new feature for the current project.
 
 **Feature name:** $ARGUMENTS
 
-## Steps
+Call `feature_start` with:
+- `project_dir`: the current working directory
+- `session_id`: your session ID
+- `name`: $ARGUMENTS
 
-1. **Identify the project directory** — use the current working directory (`$PWD`).
-
-2. **Read the feature index** — open `.claude/features.json` in `$PWD`.
-   If the file does not exist, treat it as `{{"current_feature": null, "sessions": {{}}}}`.
-
-3. **Auto-complete any active feature** — if `current_feature` is not null:
-   - Load `.claude/features/<snake_name>.json` for that feature
-   - Set `"status": "completed"` and `"completed_at"` to the current UTC ISO timestamp
-   - Write the file back
-   - Generate a summary per the Summary Format below and write it to `features/<feature-name>.md`
-   - Set `"current_feature"` to null in `.claude/features.json`
-   - Tell the user which feature was auto-completed
-
-4. **Filename conversion** — convert `$ARGUMENTS` to snake_case:
-   {SNAKE_RULE}
-
-5. **Create `.claude/features/` directory** if it does not exist.
-
-6. **Write `.claude/features/<snake_name>.json`:**
-   ```json
-   {{
-     "name": "$ARGUMENTS",
-     "status": "active",
-     "session_id": "<generate a new UUID>",
-     "subdir": null,
-     "started_at": "<current UTC ISO timestamp, e.g. 2026-04-05T10:00:00+00:00>",
-     "completed_at": null,
-     "sessions": [],
-     "total_cost_usd": 0.0,
-     "total_input_tokens": 0,
-     "total_output_tokens": 0,
-     "bridgecrew_feature_id": null
-   }}
-   ```
-
-7. **Update `.claude/features.json`** — set `"current_feature"` to `"$ARGUMENTS"`.
-   Preserve the existing `"sessions"` field; do not overwrite it.
-
-8. **Create stub feature doc** — if `features/$ARGUMENTS.md` does not exist, create it:
-   ```markdown
-   # $ARGUMENTS
-
-   **Status:** Active
-   **Started:** <today's date YYYY-MM-DD>
-
-   ## Goal
-
-   _Describe what this feature is trying to accomplish._
-
-   ## Progress
-
-   _Notes will be added here as work progresses._
-   ```
-   Create the `features/` directory first if it does not exist.
-
-9. **Report** — confirm to the user: "Feature **`$ARGUMENTS`** started."
-   If a feature was auto-completed, include: "Auto-completed **`<name>`** and wrote summary."
-
----
-
-## Summary Format
-
-{SUMMARY_FORMAT}
+If the result is `status: "conflict"`, show the `warning` and `recommendation`
+fields to the user verbatim, then ask if they want to force-take the feature.
+Only call again with `force=True` if they confirm.
 """
 
 _COMPLETE_FEATURE = """\
 Complete the currently active feature for the project in the current working directory.
 
-## Steps
-
-1. **Identify the project directory** — use the current working directory (`$PWD`).
-
-2. **Read the feature index** — open `.claude/features.json` in `$PWD`.
-   If `current_feature` is null or the file does not exist, tell the user
-   "No active feature to complete." and stop.
-
-3. **Load the feature record** — convert `current_feature` to snake_case (see below),
-   load `.claude/features/<snake_name>.json`.
-   If the file does not exist, tell the user and stop.
-
-4. **Mark as completed:**
-   - Set `"status"` to `"completed"`
-   - Set `"completed_at"` to the current UTC ISO timestamp
-   - Write the file back
-
-5. **Generate summary** per the Summary Format below and write to
-   `features/<feature-name>.md`.
-
-6. **Update the index** — set `"current_feature"` to null in `.claude/features.json`.
-   Preserve the `"sessions"` field.
-
-7. **Report** — "Feature **`<name>`** completed. Summary written to `features/<name>.md`."
-
-**Filename conversion** (snake_case):
-{SNAKE_RULE}
-
----
-
-## Summary Format
-
-{SUMMARY_FORMAT}
+Call `feature_complete` with:
+- `project_dir`: the current working directory
+- `session_id`: your session ID
+- `summary`: a 200-400 word summary covering what the feature set out to do,
+  what was actually built, key technical decisions and why, any known gaps or
+  follow-up work, and notable files changed.
 """
 
 _RESUME_FEATURE = """\
 Resume a feature for the project in the current working directory.
 
-## Steps
+1. Call `feature_list` with `project_dir` = current working directory to show
+   the user the available features.
+2. Ask the user which feature to resume.
+3. Call `feature_resume` with:
+   - `project_dir`: the current working directory
+   - `session_id`: your session ID
+   - `feature_name`: the chosen feature name
 
-1. **Identify the project directory** — use the current working directory (`$PWD`).
-
-2. **List all features** — scan `.claude/features/*.json`. For each file, read `name` and `status`.
-   If no features exist, tell the user "No features found. Use `/start-feature <name>` to create one." and stop.
-
-3. **Display the list** to the user in this format:
-   ```
-   Features for this project:
-     1. my-feature [active] <- current
-     2. old-feature [completed]
-     3. another [completed]
-   ```
-   Ask the user which feature to resume (by name or number).
-   Wait for their response before continuing.
-
-4. **Check for an active feature** (other than the one being resumed):
-   - Load `.claude/features.json`
-   - If `current_feature` is not null and is different from the chosen feature:
-     - Load the active feature's JSON
-     - Set `"status": "completed"`, `"completed_at"`: now
-     - Write it back
-     - Generate a summary per the Summary Format below
-     - Tell the user which feature was auto-completed
-
-5. **Resume the chosen feature:**
-   - Load its JSON
-   - Set `"status": "active"`, clear `"completed_at"` (set to null)
-   - Write it back
-   - Update `"current_feature"` in `.claude/features.json` to the feature's name
-
-6. **Report** — "Resumed feature **`<name>`**."
-
-**Filename conversion** (snake_case):
-{SNAKE_RULE}
-
----
-
-## Summary Format
-
-{SUMMARY_FORMAT}
+If the result is `status: "conflict"`, show the `warning` and `recommendation`
+fields to the user verbatim, then ask if they want to force-take the feature.
+Only call again with `force=True` if they confirm.
 """
 
 _LIST_FEATURES = """\
 List all features for the project in the current working directory.
 
-## Steps
-
-1. **Identify the project directory** — use the current working directory (`$PWD`).
-
-2. **Read the feature index** — open `.claude/features.json`. Note `current_feature`.
-   If the file does not exist, treat `current_feature` as null.
-
-3. **Scan per-feature files** — read all `.json` files in `.claude/features/`.
-   For each, extract: `name`, `status`, `subdir`, `started_at`, `completed_at`.
-
-4. **Display in a monospace block** (sort: active first, then by started_at descending):
-
-   ```
-   Features — <project dir basename>
-   ─────────────────────────────────────────────
-   Name                Status      Started
-   ─────────────────────────────────────────────
-   my-feature          active      2026-04-01  <- current
-   old-feature         completed   2026-03-15
-   another             completed   2026-03-01
-   ─────────────────────────────────────────────
-   Total: 3  Active: 1
-   ```
-
-   If no features exist: "No features yet. Use `/start-feature <name>` to create one."
+Call `feature_list` with `project_dir` = current working directory and display
+the results in a readable table showing name, status, started date, and
+milestone count.
 """
 
 _DISCARD_FEATURE = """\
 Discard a feature from the project in the current working directory.
-This removes its tracking record, archives its doc, and strips it from CLAUDE.md.
+This removes its tracking record and archives its summary doc.
 
-## Steps
-
-1. **Identify the project directory** — use the current working directory (`$PWD`).
-
-2. **List all features** — scan `.claude/features/*.json`. If none, tell the user
-   "No features to discard." and stop.
-
-3. **Display the list** and ask the user which feature to discard.
-   Wait for their response. Ask for confirmation before proceeding:
-   "Discard **`<name>`**? This cannot be undone. (yes/no)"
-
-4. **Archive the feature doc** — if `features/<name>.md` exists:
-   - Create `features/_archived/` if it does not exist
-   - Move `features/<name>.md` to `features/_archived/<name>.md`
-
-5. **Delete the feature record** — delete `.claude/features/<snake_name>.json`.
-
-6. **Update the index** — in `.claude/features.json`:
-   - If `current_feature` equals this feature's name, set it to null
-   - Remove any sessions entries whose `"feature"` value matches this feature's name
-
-7. **Strip from CLAUDE.md** — in `$PWD/CLAUDE.md`, find the `## Features` section
-   and remove any bullet line that starts with `**<name>**` (case-insensitive).
-   Only modify the file if such a line is found.
-
-8. **Report** what was done:
-   - "Feature **`<name>`** discarded."
-   - "Archived: `features/_archived/<name>.md`" (if the doc existed)
-   - "Removed from CLAUDE.md" (if a bullet was removed)
-
-**Filename conversion** (snake_case):
-{SNAKE_RULE}
+1. Call `feature_list` with `project_dir` = current working directory to show
+   available features.
+2. Ask the user which feature to discard and confirm before proceeding.
+3. Call `feature_discard` with:
+   - `project_dir`: the current working directory
+   - `session_id`: your session ID
 """
 
 COMMANDS: dict[str, str] = {
@@ -272,68 +88,58 @@ COMMANDS: dict[str, str] = {
     "discard-feature": _DISCARD_FEATURE,
 }
 
-_SNAKE_RULE = (
-    "lowercase; replace & with 'and'; replace hyphens/spaces with _; "
-    "remove non-alphanumeric except _; collapse __; strip leading/trailing _. "
-    'Example: "my-feature" → "my_feature", "Bugs & Fixes" → "bugs_and_fixes"'
-)
 
-
-def render_command(template: str, summary_format: str) -> str:
-    """Inject lifecycle doc sections into a command template."""
-    return template.format(
-        SUMMARY_FORMAT=summary_format,
-        SNAKE_RULE=_SNAKE_RULE,
-    )
-
-
-def generate(output_dir: Path, lifecycle_doc_path: Path) -> list[str]:
-    """Generate all command files. Returns list of written file paths."""
-    lifecycle_text = load_lifecycle_doc(lifecycle_doc_path)
-    summary_format = extract_section(lifecycle_text, "Summary Format")
-
+def generate(output_dir: Path) -> list[str]:
+    """Write command .md files. Returns list of written paths."""
     output_dir.mkdir(parents=True, exist_ok=True)
     written = []
-
-    for name, template in COMMANDS.items():
-        content = render_command(template, summary_format)
+    for name, content in COMMANDS.items():
         out_path = output_dir / f"{name}.md"
         out_path.write_text(content, encoding="utf-8")
         written.append(str(out_path))
-
     return written
 
 
-def build_claude_md_block(lifecycle_text: str) -> str:
-    """Build the auto-generated block to inject into ~/.claude/CLAUDE.md."""
-    overview = extract_section(lifecycle_text, "Overview")
-    workflow = extract_section(lifecycle_text, "Workflow")
-    state_files = extract_section(lifecycle_text, "State Files")
-    return (
-        "# BEGIN: feature-lifecycle (auto-generated)\n"
-        "# Do not edit this block manually — re-run setup-claude-pc.sh to update.\n\n"
-        "## Feature Lifecycle\n\n"
-        f"{overview}\n\n"
-        "### State Files\n\n"
-        f"{state_files}\n\n"
-        "### Workflow Summary\n\n"
-        f"{workflow}\n"
-        "# END: feature-lifecycle"
-    )
+_CLAUDE_MD_BLOCK = """\
+# BEGIN: feature-mcp
+# Do not edit this block manually — re-run setup-claude-pc.sh to update.
+
+## Feature Lifecycle
+
+Feature state is managed by the **feature-mcp** MCP server running on `localhost:8765`.
+
+**At the start of every session**, call:
+```
+feature_context(project_dir="<absolute path>", session_id="<your session id>")
+```
+This returns your active feature (if any) and a list of all project features.
+
+**Available tools:**
+- `feature_context(project_dir, session_id)` — get active feature + feature list (call at session start)
+- `feature_start(project_dir, session_id, name, description?, force?)` — start a new feature
+- `feature_resume(project_dir, session_id, feature_name, force?)` — resume an existing feature
+- `feature_complete(project_dir, session_id, summary)` — complete and write summary
+- `feature_add_milestone(project_dir, session_id, text)` — record a mid-session milestone
+- `feature_list(project_dir)` — list all features
+- `feature_discard(project_dir, session_id)` — discard and archive
+
+**Conflict handling:** If `feature_resume` or `feature_start` returns `status: "conflict"`,
+show the warning and recommendation to the user verbatim before calling again with `force=True`.
+
+# END: feature-mcp"""
 
 
 def merge_claude_md(claude_md_path: Path, block: str) -> None:
-    """Write or merge the feature-lifecycle block into ~/.claude/CLAUDE.md."""
-    marker_start = "# BEGIN: feature-lifecycle"
-    marker_end = "# END: feature-lifecycle"
+    """Replace the feature-lifecycle or feature-mcp block in ~/.claude/CLAUDE.md."""
+    # Match either the old or new block markers
+    pattern = re.compile(
+        r"# BEGIN: feature-(?:lifecycle|mcp).*?# END: feature-(?:lifecycle|mcp)",
+        re.DOTALL,
+    )
 
     if claude_md_path.exists():
         existing = claude_md_path.read_text(encoding="utf-8")
-        if marker_start in existing:
-            pattern = re.compile(
-                rf"{re.escape(marker_start)}.*?{re.escape(marker_end)}",
-                re.DOTALL,
-            )
+        if pattern.search(existing):
             new_content = pattern.sub(block, existing)
         else:
             new_content = existing.rstrip("\n") + "\n\n" + block + "\n"
@@ -342,6 +148,25 @@ def merge_claude_md(claude_md_path: Path, block: str) -> None:
         new_content = block + "\n"
 
     claude_md_path.write_text(new_content, encoding="utf-8")
+
+
+def merge_mcp_json(mcp_json_path: Path) -> None:
+    """Add feature-mcp entry to ~/.claude/.mcp.json, creating if needed."""
+    entry = {
+        "type": "sse",
+        "url": "http://localhost:8765/mcp",
+    }
+    if mcp_json_path.exists():
+        try:
+            data = json.loads(mcp_json_path.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    else:
+        mcp_json_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+
+    data["feature-mcp"] = entry
+    mcp_json_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> None:
@@ -353,38 +178,34 @@ def main() -> None:
         help="Directory to write command .md files (default: ~/.claude/commands)",
     )
     parser.add_argument(
-        "--lifecycle-doc",
-        type=Path,
-        default=REPO_ROOT / "docs" / "feature-lifecycle.md",
-        help="Path to feature-lifecycle.md",
-    )
-    parser.add_argument(
         "--claude-md",
         type=Path,
         default=Path.home() / ".claude" / "CLAUDE.md",
-        help="Path to user-level CLAUDE.md to merge into",
+        help="Path to user-level CLAUDE.md (default: ~/.claude/CLAUDE.md)",
     )
     parser.add_argument(
-        "--skip-claude-md",
-        action="store_true",
-        help="Skip writing/merging ~/.claude/CLAUDE.md",
+        "--mcp-json",
+        type=Path,
+        default=Path.home() / ".claude" / ".mcp.json",
+        help="Path to ~/.claude/.mcp.json (default: ~/.claude/.mcp.json)",
     )
+    parser.add_argument("--skip-claude-md", action="store_true")
+    parser.add_argument("--skip-mcp-json", action="store_true")
     args = parser.parse_args()
 
-    print(f"Lifecycle doc: {args.lifecycle_doc}")
-    print(f"Output dir:    {args.output_dir}")
-
-    lifecycle_text = load_lifecycle_doc(args.lifecycle_doc)
-    written = generate(args.output_dir, args.lifecycle_doc)
-
+    print(f"Output dir: {args.output_dir}")
+    written = generate(args.output_dir)
     print(f"\nGenerated {len(written)} command files:")
     for path in written:
         print(f"  {path}")
 
     if not args.skip_claude_md:
-        block = build_claude_md_block(lifecycle_text)
-        merge_claude_md(args.claude_md, block)
-        print(f"\nMerged feature-lifecycle block into: {args.claude_md}")
+        merge_claude_md(args.claude_md, _CLAUDE_MD_BLOCK)
+        print(f"\nMerged feature-mcp block into: {args.claude_md}")
+
+    if not args.skip_mcp_json:
+        merge_mcp_json(args.mcp_json)
+        print(f"Registered feature-mcp in: {args.mcp_json}")
 
     print("\nDone.")
 

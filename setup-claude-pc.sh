@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # setup-claude-pc.sh
-# Installs Claude CLI slash commands and global CLAUDE.md for the feature lifecycle workflow.
-# Run this on any PC running the bot, or after changes to docs/feature-lifecycle.md.
+# Sets up the feature-mcp workflow for Claude CLI on this machine:
+#   - Generates slash command files in ~/.claude/commands/
+#   - Merges the feature-mcp block into ~/.claude/CLAUDE.md
+#   - Registers the feature-mcp server in ~/.claude/.mcp.json
+#
+# Run this on any PC that runs Claude CLI, or after changes to this repo.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "=== Claude PC Feature Lifecycle Setup ==="
+echo "=== Claude PC Feature MCP Setup ==="
 echo ""
 
 # ── Check Claude CLI ──────────────────────────────────────────────────────────
@@ -36,27 +40,31 @@ elif [ -f "venv/bin/activate" ]; then
 fi
 
 # ── Run generator ─────────────────────────────────────────────────────────────
-LIFECYCLE_DOC="$SCRIPT_DIR/docs/feature-lifecycle.md"
 COMMANDS_DIR="$HOME/.claude/commands"
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"
+MCP_JSON="$HOME/.claude/.mcp.json"
 
-echo "Generating command files from: $LIFECYCLE_DOC"
-echo "Installing to: $COMMANDS_DIR"
+echo "Installing command files to: $COMMANDS_DIR"
+echo "Updating CLAUDE.md at:       $CLAUDE_MD"
+echo "Registering MCP server in:   $MCP_JSON"
 echo ""
 
 "$PYTHON" "$SCRIPT_DIR/scripts/generate_claude_commands.py" \
     --output-dir "$COMMANDS_DIR" \
-    --lifecycle-doc "$LIFECYCLE_DOC" \
-    --claude-md "$CLAUDE_MD"
+    --claude-md "$CLAUDE_MD" \
+    --mcp-json "$MCP_JSON"
 
 echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "Available slash commands in Claude CLI:"
-echo "  /start-feature <name>   Start a new feature (auto-completes any active)"
+echo "  /start-feature <name>   Start a new feature"
 echo "  /complete-feature       Complete the active feature (writes summary)"
 echo "  /resume-feature         Resume a previous feature"
 echo "  /list-features          List all features for the current project"
 echo "  /discard-feature        Remove a feature from tracking"
 echo ""
-echo "To update after lifecycle changes: ./setup-claude-pc.sh"
+echo "NOTE: The feature-mcp server must be running for these commands to work."
+echo "  Start it with: M:/feature-mcp/start.bat"
+echo ""
+echo "To update after repo changes: ./setup-claude-pc.sh"
