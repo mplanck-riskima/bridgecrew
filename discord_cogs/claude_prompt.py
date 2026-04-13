@@ -711,7 +711,8 @@ class ClaudePromptCog(commands.Cog):
                         model_str = f"`{event.model}` · " if event.model else ""
                         session_label = f"`{feature.name}`" if feature else "session"
                         cost_str = f"${totals['total_cost_usd']:.4f} · " if totals["total_cost_usd"] else ""
-                        session_line = f"*{model_str}{session_label} · {cost_str}{totals['prompt_count']} prompts*"
+                        session_id_str = f" · `{last_session_id[:8]}`" if last_session_id else ""
+                        session_line = f"*{model_str}{session_label} · {cost_str}{totals['prompt_count']} prompts{session_id_str}*"
 
                         await streamer.feed(
                             f"\n\n---\n"
@@ -863,6 +864,69 @@ class ClaudePromptCog(commands.Cog):
             finally:
                 self._system_run_labels.pop(thread_id, None)
             # Drain any messages that arrived during the summary
+            await self._worker(thread_id)
+
+        self._workers[thread_id] = asyncio.create_task(_run())
+
+    async def run_feature_init_session(
+        self,
+        channel,
+        project_dir,
+        feature_name: str,
+        action: str,
+        subdir: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Start (or resume) a Claude session so it registers with the MCP server.
+
+        Sends a minimal prompt instructing Claude to call feature_start or feature_resume
+        via the MCP tool. _run_stream automatically persists the resulting session_id
+        to default_session_id in project state.
+
+        action: "start" or "resume"
+        subdir: optional subdirectory scope (start only)
+        session_id: existing CLI session ID to resume (leave None for a fresh session)
+        """
+        thread_id = channel.id
+
+        if action == "start":
+            subdir_hint = f", subdir='{subdir}'" if subdir else ""
+            prompt = (
+                f"Call `feature_start(project_dir='{project_dir}', "
+                f"session_id='<your session id>', name='{feature_name}'{subdir_hint})`. "
+                f"Then reply: 'Ready to work on **`{feature_name}`**.' Nothing else."
+            )
+        else:
+            prompt = (
+                f"Call `feature_resume(project_dir='{project_dir}', "
+                f"session_id='<your session id>', feature_name='{feature_name}')`. "
+                f"Then reply: 'Resumed **`{feature_name}`**.' Nothing else."
+            )
+
+        if thread_id not in self._queues:
+            self._queues[thread_id] = asyncio.Queue()
+        label = (
+            f"starting feature **`{feature_name}`**"
+            if action == "start"
+            else f"resuming feature **`{feature_name}`**"
+        )
+        self._system_run_labels[thread_id] = label
+
+        async def _run():
+            try:
+                await self._run_stream(
+                    channel=channel,
+                    runner=self.bot.claude_runner,
+                    prompt=prompt,
+                    project_dir=project_dir,
+                    run_dir=project_dir,
+                    thread_id=thread_id,
+                    session_id=session_id,
+                    resume=session_id is not None,
+                    feature=None,
+                )
+            finally:
+                self._system_run_labels.pop(thread_id, None)
             await self._worker(thread_id)
 
         self._workers[thread_id] = asyncio.create_task(_run())

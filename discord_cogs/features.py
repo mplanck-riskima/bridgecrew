@@ -42,23 +42,21 @@ class SubdirSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         subdir = self.values[0] if self.values[0] != "__root__" else None
 
-        # Store pending op — Claude will call feature_start on next message
-        state = load_project_state(self.project_dir)
-        state["pending_feature_op"] = {
-            "action": "start",
-            "name": self.feature_name,
-            "subdir": subdir,
-        }
-        save_project_state(self.project_dir, state)
-
         scope = f"`{subdir}/`" if subdir else "project root"
         await interaction.response.edit_message(
-            content=(
-                f"Ready to start **`{self.feature_name}`** in {scope}.\n"
-                f"Send your first message — Claude will begin the feature automatically."
-            ),
+            content=f"Starting feature **`{self.feature_name}`** in {scope}...",
             view=None,
         )
+
+        prompt_cog = self.bot.cogs.get("ClaudePromptCog")
+        if prompt_cog:
+            asyncio.create_task(prompt_cog.run_feature_init_session(
+                interaction.channel,
+                self.project_dir,
+                self.feature_name,
+                "start",
+                subdir=subdir,
+            ))
 
 
 class SubdirView(discord.ui.View):
@@ -84,18 +82,19 @@ class FeatureSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         name = self.values[0]
 
-        # Store pending op — Claude will call feature_resume on next message
-        state = load_project_state(self.project_dir)
-        state["pending_feature_op"] = {"action": "resume", "name": name}
-        save_project_state(self.project_dir, state)
-
         await interaction.response.edit_message(
-            content=(
-                f"Ready to resume **`{name}`**.\n"
-                f"Send a message to continue — Claude will resume the feature automatically."
-            ),
+            content=f"Resuming feature **`{name}`**...",
             view=None,
         )
+
+        prompt_cog = self.bot.cogs.get("ClaudePromptCog")
+        if prompt_cog:
+            asyncio.create_task(prompt_cog.run_feature_init_session(
+                interaction.channel,
+                self.project_dir,
+                name,
+                "resume",
+            ))
 
 
 class FeatureView(discord.ui.View):
@@ -291,19 +290,20 @@ class FeatureForSessionSelect(discord.ui.Select):
             await interaction.response.edit_message(content=f"Feature `{choice}` not found.", view=None)
             return
 
-        # Store pending resume op + set default session to the CLI session id
-        state = load_project_state(self.project_dir)
-        state["pending_feature_op"] = {"action": "resume", "name": choice}
-        state["default_session_id"] = self.cli_session_id
-        save_project_state(self.project_dir, state)
-
         await interaction.response.edit_message(
-            content=(
-                f"Session `{self.cli_session_id[:12]}...` will resume **`{choice}`**.\n"
-                f"Send a message in this thread to continue."
-            ),
+            content=f"Resuming **`{choice}`** in session `{self.cli_session_id[:12]}...`...",
             view=None,
         )
+
+        prompt_cog = self.bot.cogs.get("ClaudePromptCog")
+        if prompt_cog:
+            asyncio.create_task(prompt_cog.run_feature_init_session(
+                interaction.channel,
+                self.project_dir,
+                choice,
+                "resume",
+                session_id=self.cli_session_id,
+            ))
 
 
 class FeatureForSessionView(discord.ui.View):
@@ -327,16 +327,20 @@ class NewFeatureModal(discord.ui.Modal, title="New Feature"):
             await interaction.response.send_message("Feature name cannot be empty.", ephemeral=True)
             return
 
-        state = load_project_state(self.project_dir)
-        state["pending_feature_op"] = {"action": "start", "name": name}
-        state["default_session_id"] = self.cli_session_id
-        save_project_state(self.project_dir, state)
-
         await interaction.response.send_message(
-            f"Ready to create **`{name}`** and resume session `{self.cli_session_id[:12]}...`.\n"
-            f"Send a message in the thread to begin.",
+            f"Starting **`{name}`** in session `{self.cli_session_id[:12]}...`...",
             ephemeral=True,
         )
+
+        prompt_cog = self.bot.cogs.get("ClaudePromptCog")
+        if prompt_cog:
+            asyncio.create_task(prompt_cog.run_feature_init_session(
+                interaction.channel,
+                self.project_dir,
+                name,
+                "start",
+                session_id=self.cli_session_id,
+            ))
 
 
 # ── Cog ───────────────────────────────────────────────────────────────────────
@@ -479,14 +483,19 @@ class FeaturesCog(commands.Cog):
                 ephemeral=True,
             )
         else:
-            # No subdirectories — store pending op and let Claude call feature_start
-            state = load_project_state(project_dir)
-            state["pending_feature_op"] = {"action": "start", "name": name}
-            save_project_state(project_dir, state)
+            # No subdirectories — start a Claude session immediately
             await interaction.response.send_message(
-                f"Ready to start **`{name}`**. Send your first message — Claude will begin the feature automatically.",
+                f"Starting feature **`{name}`**...",
                 ephemeral=True,
             )
+            prompt_cog = self.bot.cogs.get("ClaudePromptCog")
+            if prompt_cog:
+                asyncio.create_task(prompt_cog.run_feature_init_session(
+                    interaction.channel,
+                    project_dir,
+                    name,
+                    "start",
+                ))
 
     @app_commands.command(name="resume-feature", description="Resume an existing or completed feature")
     @captains_only()
