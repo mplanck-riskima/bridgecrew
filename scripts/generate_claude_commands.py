@@ -24,48 +24,73 @@ Start a new feature for the current project.
 **Feature name:** $ARGUMENTS
 
 Call `feature_start` with:
-- `project_dir`: the current working directory
+- `project_dir`: the current working directory (absolute path)
 - `session_id`: your session ID
 - `name`: $ARGUMENTS
 
 If the result is `status: "conflict"`, show the `warning` and `recommendation`
 fields to the user verbatim, then ask if they want to force-take the feature.
 Only call again with `force=True` if they confirm.
+
+On success, confirm: "Feature **`$ARGUMENTS`** started."
+If a previously active feature was displaced, mention it by name.
 """
 
 _COMPLETE_FEATURE = """\
 Complete the currently active feature for the project in the current working directory.
 
 Call `feature_complete` with:
-- `project_dir`: the current working directory
+- `project_dir`: the current working directory (absolute path)
 - `session_id`: your session ID
-- `summary`: a 200-400 word summary covering what the feature set out to do,
-  what was actually built, key technical decisions and why, any known gaps or
-  follow-up work, and notable files changed.
+- `summary`: a 200–400 word summary that covers:
+  - What the feature set out to do
+  - What was actually built (key components, changes, files)
+  - Key technical decisions and the reasoning behind them
+  - Any known gaps, limitations, or follow-up work
+  - Notable files changed or created
+
+On success, confirm: "Feature **`<name>`** completed. Summary written to `features/<name>.md`."
 """
 
 _RESUME_FEATURE = """\
 Resume a feature for the project in the current working directory.
 
-1. Call `feature_list` with `project_dir` = current working directory to show
-   the user the available features.
-2. Ask the user which feature to resume.
+1. Call `feature_list` with `project_dir` = current working directory.
+2. Display the results to the user in a readable list, then ask which feature to resume.
+   Wait for their response before continuing.
 3. Call `feature_resume` with:
-   - `project_dir`: the current working directory
+   - `project_dir`: the current working directory (absolute path)
    - `session_id`: your session ID
    - `feature_name`: the chosen feature name
 
 If the result is `status: "conflict"`, show the `warning` and `recommendation`
 fields to the user verbatim, then ask if they want to force-take the feature.
 Only call again with `force=True` if they confirm.
+
+On success, confirm: "Resumed feature **`<name>`**."
 """
 
 _LIST_FEATURES = """\
 List all features for the project in the current working directory.
 
-Call `feature_list` with `project_dir` = current working directory and display
-the results in a readable table showing name, status, started date, and
-milestone count.
+Call `feature_list` with `project_dir` = current working directory.
+
+Display results in a monospace block, sorted active-first then by start date
+descending, with columns: Name, Status, Started, Milestones. Mark the current
+active feature with "<- current". Example format:
+
+```
+Features — <project dir basename>
+─────────────────────────────────────────────────
+Name               Status      Started     Milestones
+─────────────────────────────────────────────────
+my-feature         active      2026-04-01  3       <- current
+old-feature        completed   2026-03-15  7
+─────────────────────────────────────────────────
+Total: 2  Active: 1
+```
+
+If no features exist: "No features yet. Use `/start-feature <name>` to create one."
 """
 
 _DISCARD_FEATURE = """\
@@ -73,11 +98,20 @@ Discard a feature from the project in the current working directory.
 This removes its tracking record and archives its summary doc.
 
 1. Call `feature_list` with `project_dir` = current working directory to show
-   available features.
-2. Ask the user which feature to discard and confirm before proceeding.
-3. Call `feature_discard` with:
-   - `project_dir`: the current working directory
+   available features. If none exist, tell the user "No features to discard." and stop.
+2. Display the list and ask which feature to discard.
+3. Ask for confirmation: "Discard **`<name>`**? This cannot be undone. (yes/no)"
+   Wait for their response. Only proceed if they confirm.
+4. Call `feature_discard` with:
+   - `project_dir`: the current working directory (absolute path)
    - `session_id`: your session ID
+
+After discarding, also check `CLAUDE.md` in the project root for a `## Features`
+section and remove any bullet line that mentions the discarded feature name.
+Only modify the file if such a line exists.
+
+Report what was done: feature discarded, doc archived (if applicable),
+CLAUDE.md updated (if applicable).
 """
 
 COMMANDS: dict[str, str] = {
@@ -169,6 +203,24 @@ def merge_mcp_json(mcp_json_path: Path) -> None:
     mcp_json_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+def merge_settings_json(settings_path: Path) -> None:
+    """Add feature-mcp to enabledMcpjsonServers in ~/.claude/settings.json."""
+    if settings_path.exists():
+        try:
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    else:
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+
+    servers = data.get("enabledMcpjsonServers", [])
+    if "feature-mcp" not in servers:
+        servers.append("feature-mcp")
+    data["enabledMcpjsonServers"] = servers
+    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -189,8 +241,15 @@ def main() -> None:
         default=Path.home() / ".claude" / ".mcp.json",
         help="Path to ~/.claude/.mcp.json (default: ~/.claude/.mcp.json)",
     )
+    parser.add_argument(
+        "--settings-json",
+        type=Path,
+        default=Path.home() / ".claude" / "settings.json",
+        help="Path to ~/.claude/settings.json (default: ~/.claude/settings.json)",
+    )
     parser.add_argument("--skip-claude-md", action="store_true")
     parser.add_argument("--skip-mcp-json", action="store_true")
+    parser.add_argument("--skip-settings", action="store_true")
     args = parser.parse_args()
 
     print(f"Output dir: {args.output_dir}")
@@ -206,6 +265,10 @@ def main() -> None:
     if not args.skip_mcp_json:
         merge_mcp_json(args.mcp_json)
         print(f"Registered feature-mcp in: {args.mcp_json}")
+
+    if not args.skip_settings:
+        merge_settings_json(args.settings_json)
+        print(f"Enabled feature-mcp in: {args.settings_json}")
 
     print("\nDone.")
 

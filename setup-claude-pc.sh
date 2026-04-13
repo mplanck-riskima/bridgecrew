@@ -43,16 +43,19 @@ fi
 COMMANDS_DIR="$HOME/.claude/commands"
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"
 MCP_JSON="$HOME/.claude/.mcp.json"
+SETTINGS_JSON="$HOME/.claude/settings.json"
 
 echo "Installing command files to: $COMMANDS_DIR"
 echo "Updating CLAUDE.md at:       $CLAUDE_MD"
 echo "Registering MCP server in:   $MCP_JSON"
+echo "Updating settings at:        $SETTINGS_JSON"
 echo ""
 
 "$PYTHON" "$SCRIPT_DIR/scripts/generate_claude_commands.py" \
     --output-dir "$COMMANDS_DIR" \
     --claude-md "$CLAUDE_MD" \
-    --mcp-json "$MCP_JSON"
+    --mcp-json "$MCP_JSON" \
+    --settings-json "$SETTINGS_JSON"
 
 echo ""
 echo "=== Setup Complete ==="
