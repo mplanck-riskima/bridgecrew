@@ -1,10 +1,10 @@
 {
   "started_at": "2026-04-05T20:45:36.088646+00:00",
   "status": "active",
-  "total_input_tokens": 2598637,
-  "total_output_tokens": 192064,
-  "total_cost_usd": 15.0559635,
-  "prompt_count": 37,
+  "total_input_tokens": 3198156,
+  "total_output_tokens": 306114,
+  "total_cost_usd": 23.34937235,
+  "prompt_count": 42,
   "session_id": "42e2f62b-d551-408f-8986-5eb7f2707d26",
   "sessions": [
     {
