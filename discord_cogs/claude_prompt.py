@@ -637,11 +637,11 @@ class ClaudePromptCog(commands.Cog):
                         # Accumulate cost for the session/feature (still tracked, just not shown)
                         _out_tokens = event.output_tokens or 0
                         _cost = event.cost_usd or 0.0
-                        if feature and default_session_id:
+                        if feature and session_id:
                             from core.mcp_client import post_cost as _post_cost
                             asyncio.create_task(_post_cost(
                                 project_dir,
-                                session_id=default_session_id,
+                                session_id=session_id,
                                 cost_usd=_cost,
                                 input_tokens=context_fill,
                                 output_tokens=_out_tokens,

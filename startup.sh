@@ -26,6 +26,20 @@ for arg in "$@"; do
     esac
 done
 
+# ── Feature MCP Server ────────────────────────────────────────────────────────
+FEATURE_MCP_DIR="M:/feature-mcp"
+FEATURE_MCP_SCRIPT="$FEATURE_MCP_DIR/start.sh"
+
+if [ -f "$FEATURE_MCP_SCRIPT" ]; then
+    echo "=== Starting Feature MCP Server ==="
+    bash "$FEATURE_MCP_SCRIPT" &
+    FEATURE_MCP_PID=$!
+    echo "Feature MCP server started (PID $FEATURE_MCP_PID, port 8765)"
+    echo ""
+else
+    echo "Warning: Feature MCP start script not found at $FEATURE_MCP_SCRIPT — skipping."
+fi
+
 # ── Local Dashboard ────────────────────────────────────────────────────────────
 if [ "$WITH_DASH" = true ] || [ "$DASH_ONLY" = true ]; then
     echo "=== Starting Local Dashboard ==="
