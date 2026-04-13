@@ -28,13 +28,22 @@ async def get_features(project_dir: Path) -> list[dict]:
 
 
 async def get_session_feature(project_dir: Path, session_id: str) -> dict | None:
-    """Return the active feature for this session, or None."""
+    """Return the active feature for this session, or None.
+
+    First tries to match by session_id; falls back to any feature with
+    status == "active" so the gate doesn't fire when the session ID has
+    changed (e.g. bot restart) but a feature is still active.
+    """
     features = await get_features(project_dir)
-    # Find a feature that has an active session matching session_id
+    # 1. Exact session match
     for feat in features:
         for sess in feat.get("sessions", []):
             if sess.get("session_id") == session_id and sess.get("status") == "active":
                 return feat
+    # 2. Fallback: any feature that is still marked active
+    for feat in features:
+        if feat.get("status") == "active":
+            return feat
     return None
 
 
