@@ -721,6 +721,29 @@ class ClaudePromptCog(commands.Cog):
                             f"{warning}"
                         )
 
+            # Extract markers from the full response text BEFORE finalize() so we can
+            # strip them from streamer.current_text first.  finalize() calls
+            # current_message.edit(content=current_text), and discord.py does NOT update
+            # the Python .content attribute on edit — so if finalize runs first, the
+            # subsequent strip loop reads stale .content values and misses the marker,
+            # leaving [ask-user: ...] visible in the Discord message.
+            response_text = "".join(full_response)
+            pending_files = SEND_FILE_PATTERN.findall(response_text)
+            pending_audio = PLAY_AUDIO_PATTERN.findall(response_text)
+            pending_question = None
+            ask_match = ASK_USER_PATTERN.search(response_text)
+            if ask_match:
+                pending_question = ask_match.group(1)
+
+            # Strip markers from the streamer's internal text so finalize() writes clean
+            # content to Discord (no visible [ask-user: ...] / [send-file: ...] etc.)
+            if pending_files or pending_question or pending_audio:
+                ct = streamer.current_text
+                ct = SEND_FILE_PATTERN.sub("", ct)
+                ct = ASK_USER_PATTERN.sub("", ct)
+                ct = PLAY_AUDIO_PATTERN.sub("", ct)
+                streamer.current_text = ct.strip() or "\u200b"
+
             await streamer.finalize()
 
             # Autonomous run-complete notification
@@ -730,16 +753,9 @@ class ClaudePromptCog(commands.Cog):
                     f"Claude has finished in {project_name}." if project_name else "Claude has finished."
                 ))
 
-            # Extract markers from the full response text and clean them from Discord messages
-            response_text = "".join(full_response)
-            pending_files = SEND_FILE_PATTERN.findall(response_text)
-            pending_audio = PLAY_AUDIO_PATTERN.findall(response_text)
-            pending_question = None
-            ask_match = ASK_USER_PATTERN.search(response_text)
-            if ask_match:
-                pending_question = ask_match.group(1)
-
-            # Strip markers from the Discord messages if any were found
+            # Also strip markers from any earlier Discord messages (multi-message responses
+            # where the marker landed in a non-current message, or messages sent before the
+            # final flush).
             if pending_files or pending_question or pending_audio:
                 for msg in streamer.all_messages:
                     try:
