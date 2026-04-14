@@ -158,6 +158,7 @@ class FeatureGateSelect(discord.ui.Select):
 
         _state = load_project_state(self.project_dir)
         _state["pending_feature_op"] = {"action": "resume" if exists else "start", "name": choice}
+        _state["active_feature_name"] = choice
         _save_ps(self.project_dir, _state)
         self.selected_feature = _PendingFeature(name=choice)
 
@@ -185,6 +186,7 @@ class NewFeatureModal(discord.ui.Modal, title="New Feature"):
         from core.state import load_project_state, save_project_state as _save_ps_modal
         _state = load_project_state(self.gate_select.project_dir)
         _state["pending_feature_op"] = {"action": "start", "name": name}
+        _state["active_feature_name"] = name
         _save_ps_modal(self.gate_select.project_dir, _state)
         self.gate_select.selected_feature = _PendingFeature(name=name)
         await interaction.response.edit_message(
@@ -542,7 +544,7 @@ class ClaudePromptCog(commands.Cog):
         # Start streaming with a cancel button
         cancel_fn = lambda: runner.cancel(thread_id)
         streamer = DiscordStreamer(channel, on_cancel=cancel_fn)
-        await streamer.start(prompt_preview=prompt if show_prompt_preview else "", persona_name=persona_name)
+        await streamer.start(prompt_preview=prompt if show_prompt_preview else "", persona_name=persona_name, session_id=session_id or "")
 
         # Create a background task to periodically flush the buffer
         async def tick_loop(s=streamer):
@@ -947,6 +949,147 @@ class ClaudePromptCog(commands.Cog):
 
         self._workers[thread_id] = asyncio.create_task(_run())
 
+    async def run_feature_context_reset_session(
+        self,
+        channel,
+        project_dir,
+        feature_name: str,
+        old_session_id: str,
+    ) -> None:
+        """Capture a milestone snapshot of current work, then start a fresh feature session.
+
+        Called by /reset-context when a feature is active. Uses the old session so Claude
+        has full context for the summary, then starts a brand-new session that resumes the
+        feature — giving a clean context window with the milestone recorded.
+        """
+        thread_id = channel.id
+
+        milestone_prompt = (
+            f"The user is resetting the context window for feature **`{feature_name}`**. "
+            f"Before the session is cleared, please capture a milestone snapshot:\n\n"
+            f"1. Review recent git history (`git log --oneline -20`) and any relevant changed "
+            f"files to understand what has been accomplished so far in this session.\n"
+            f"2. Call `feature_add_milestone(project_dir='{project_dir}', "
+            f"session_id='<your session id>', text='<your milestone summary>')` with a concise "
+            f"but thorough summary covering: what was built or changed, key files touched, "
+            f"and any important design decisions or pending follow-ups.\n\n"
+            f"Reply with 'Milestone recorded for **`{feature_name}`**.' when done."
+        )
+
+        resume_prompt = (
+            f"Call `feature_resume(project_dir='{project_dir}', "
+            f"session_id='<your session id>', feature_name='{feature_name}')`. "
+            f"Then reply: 'Fresh context ready — resumed **`{feature_name}`**.' Nothing else."
+        )
+
+        if thread_id not in self._queues:
+            self._queues[thread_id] = asyncio.Queue()
+        self._system_run_labels[thread_id] = f"capturing milestone for **`{feature_name}`**"
+
+        async def _run():
+            try:
+                # Step 1: snapshot on old session
+                await self._run_stream(
+                    channel=channel,
+                    runner=self.bot.claude_runner,
+                    prompt=milestone_prompt,
+                    project_dir=project_dir,
+                    run_dir=project_dir,
+                    thread_id=thread_id,
+                    session_id=old_session_id,
+                    resume=True,
+                    feature=None,
+                )
+            finally:
+                self._system_run_labels.pop(thread_id, None)
+
+            # Step 2: start fresh session and re-register the feature
+            self._system_run_labels[thread_id] = f"resuming feature **`{feature_name}`**"
+            try:
+                await self._run_stream(
+                    channel=channel,
+                    runner=self.bot.claude_runner,
+                    prompt=resume_prompt,
+                    project_dir=project_dir,
+                    run_dir=project_dir,
+                    thread_id=thread_id,
+                    session_id=None,   # fresh session
+                    resume=False,
+                    feature=None,
+                )
+            finally:
+                self._system_run_labels.pop(thread_id, None)
+
+            await self._worker(thread_id)
+
+        self._workers[thread_id] = asyncio.create_task(_run())
+
+    async def run_feature_complete_session(
+        self,
+        channel,
+        project_dir,
+        feature_name: str,
+        session_id: str,
+    ) -> None:
+        """Resume the active Claude session, prompt it to summarise and call feature_complete.
+
+        Claude generates the summary from context, calls the feature_complete MCP tool
+        (which writes features/<name>.md and unregisters the session), then updates
+        CLAUDE.md. After the session finishes the MCP store has no active feature, so
+        the next user prompt will trigger the feature gate.
+        """
+        thread_id = channel.id
+        feature_doc_path = f"features/{feature_name}.md"
+        prompt = (
+            f"The user has completed feature **`{feature_name}`**. Please do the following:\n\n"
+            f"1. Review recent git history (`git log --oneline -20`) and any relevant changed "
+            f"files to understand what was built.\n"
+            f"2. Call `feature_complete(project_dir='{project_dir}', session_id='<your session id>', "
+            f"summary='<your summary>')` with a concise but thorough summary covering: what the "
+            f"feature does, key files changed, and any important design decisions.\n"
+            f"3. Open `CLAUDE.md` at the project root and add or update the `## Features` section "
+            f"with a bullet for this feature:\n"
+            f"   `- **{feature_name}**: One sentence description. See `{feature_doc_path}`.\n\n"
+            f"Preserve all existing CLAUDE.md content outside the Features section. "
+            f"Reply with 'Feature **`{feature_name}`** completed.' when done."
+        )
+        if thread_id not in self._queues:
+            self._queues[thread_id] = asyncio.Queue()
+        self._system_run_labels[thread_id] = f"completing feature **`{feature_name}`**"
+
+        async def _run():
+            try:
+                last_sid, _, _ = await self._run_stream(
+                    channel=channel,
+                    runner=self.bot.claude_runner,
+                    prompt=prompt,
+                    project_dir=project_dir,
+                    run_dir=project_dir,
+                    thread_id=thread_id,
+                    session_id=session_id,
+                    resume=True,
+                    feature=None,
+                )
+                # Fallback: ensure the feature is marked completed in the MCP store even
+                # if Claude failed to call feature_complete via the MCP tool.  If Claude
+                # already called it the session is unregistered and this is a no-op.
+                from core.mcp_client import complete_feature as _complete_feature
+                _sid = last_sid or session_id
+                if _sid:
+                    await _complete_feature(project_dir, _sid)
+                # Clear the active feature name from project state so the gate fires
+                # correctly on the next prompt (asking the user to pick a new feature).
+                from core.state import load_project_state as _lps_c, save_project_state as _sps_c
+                _cstate = _lps_c(project_dir)
+                _cstate.pop("active_feature_name", None)
+                _cstate.pop("pending_feature_op", None)
+                _sps_c(project_dir, _cstate)
+            finally:
+                self._system_run_labels.pop(thread_id, None)
+            await self._worker(thread_id)
+
+        self._workers[thread_id] = asyncio.create_task(_run())
+
     @captains_only()
     @app_commands.command(name="clear-work", description="Remove all queued prompts for this thread")
     async def clear_work(self, interaction: discord.Interaction) -> None:
@@ -1038,12 +1181,43 @@ class ClaudePromptCog(commands.Cog):
         preferred_model = state.get("preferred_model")
 
         # Get active feature for this Discord session by matching the last known session_id
+        _feature_needs_mcp_registration = False
         if project and default_session_id:
             from core.mcp_client import get_session_feature as _get_sf
             _feat_dict = await _get_sf(project_dir, default_session_id)
             feature = Feature.from_dict(_feat_dict["name"], _feat_dict) if _feat_dict else None
         else:
             feature = None
+
+        # Fallback: if MCP has no active feature, use the state-stored active feature name.
+        # This covers the case where the gate was used to pick a feature but feature_start/
+        # feature_resume was never called (so MCP doesn't know about the session yet).
+        if project and not feature:
+            _active_feat_name = state.get("active_feature_name")
+            if _active_feat_name:
+                import json as _json_af, re as _re_af
+                _snake = _active_feat_name.lower().replace("&", "and")
+                _snake = _re_af.sub(r"[-\s]+", "_", _snake)
+                _snake = _re_af.sub(r"[^a-z0-9_]", "", _snake)
+                _snake = _re_af.sub(r"_+", "_", _snake).strip("_") or "unnamed"
+                _feat_file = project_dir / ".claude" / "features" / f"{_snake}.json"
+                if _feat_file.exists():
+                    try:
+                        _fd = _json_af.loads(_feat_file.read_text(encoding="utf-8"))
+                        if _fd.get("status", "active") == "active":
+                            feature = Feature.from_dict(_active_feat_name, _fd)
+                        else:
+                            # Feature was completed/discarded — clear the stale state entry
+                            state.pop("active_feature_name", None)
+                            from core.state import save_project_state as _sps_clear
+                            _sps_clear(project_dir, state)
+                    except Exception:
+                        pass
+                if not feature and _active_feat_name:
+                    # Feature file doesn't exist yet (brand-new feature picked from gate)
+                    feature = Feature(name=_active_feat_name)
+                if feature:
+                    _feature_needs_mcp_registration = True
 
         # Gate: require a feature selection for project threads
         if project and not feature:
@@ -1064,8 +1238,17 @@ class ClaudePromptCog(commands.Cog):
             if not feature:
                 await gate_msg.edit(content="*Timed out — prompt cancelled.*", view=None)
                 return
+            # Feature was just selected from the gate — MCP doesn't know about this session yet.
+            # Reload state because the gate callback saved active_feature_name.
+            state = load_project_state(project_dir)
+            default_session_id = state.get("default_session_id")
+            _feature_needs_mcp_registration = True
 
-        session_id = feature.session_id if feature else default_session_id
+        # Prefer the most-recent persisted session (default_session_id) over the session_id
+        # recorded in the MCP feature file — the latter can be stale when the runner returns
+        # a new session_id after each --resume call.  Fall back to feature.session_id when
+        # no default is available (e.g. very first prompt for this project).
+        session_id = default_session_id or (feature.session_id if feature else None)
         resume = bool(session_id)
 
         # Fetch persona content and BridgeCrew dashboard project ID
@@ -1130,6 +1313,33 @@ class ClaudePromptCog(commands.Cog):
                 pass
 
         workspace_context = self._build_project_context(include_paths=True)
+
+        # If the feature came from the state fallback (MCP didn't know about it), prepend a
+        # silent instruction to register the session with the MCP server.  This runs inline
+        # with the user's prompt so no extra Claude invocation is needed.
+        if _feature_needs_mcp_registration and feature:
+            import re as _re_reg
+            _snake_reg = feature.name.lower().replace("&", "and")
+            _snake_reg = _re_reg.sub(r"[-\s]+", "_", _snake_reg)
+            _snake_reg = _re_reg.sub(r"[^a-z0-9_]", "", _snake_reg)
+            _snake_reg = _re_reg.sub(r"_+", "_", _snake_reg).strip("_") or "unnamed"
+            _feat_file_reg = project_dir / ".claude" / "features" / f"{_snake_reg}.json"
+            _reg_action = "resume" if _feat_file_reg.exists() else "start"
+            if _reg_action == "start":
+                _reg_prefix = (
+                    f"[SYSTEM TASK — do not mention this to the user: call "
+                    f"`feature_start(project_dir='{project_dir}', "
+                    f"session_id='<your session id>', name='{feature.name}')` "
+                    f"before doing anything else.]\n\n"
+                )
+            else:
+                _reg_prefix = (
+                    f"[SYSTEM TASK — do not mention this to the user: call "
+                    f"`feature_resume(project_dir='{project_dir}', "
+                    f"session_id='<your session id>', feature_name='{feature.name}')` "
+                    f"before doing anything else.]\n\n"
+                )
+            prompt = _reg_prefix + prompt
 
         print(f"\n{'='*60}\n[{message.author}] {prompt}\n{'='*60}", flush=True)
 
