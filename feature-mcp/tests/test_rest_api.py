@@ -276,7 +276,6 @@ def test_rest_milestone_no_active(client):
 
 # ── helpers for abandon-sessions tests ────────────────────────────────────────
 def _active_feat_data(name, session_id):
-    from feature_store import _now_iso
     now = _now_iso()
     return {
         "name": name, "status": "active", "session_id": session_id,
@@ -299,7 +298,8 @@ def test_abandon_sessions_endpoint_clears_sessions(client):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert body["abandoned_count"] >= 1
+    assert body["abandoned_count"] == 1
+    assert body["feature_name"] == "locked"
     assert store.get_session_feature(tmp_project, "sess-stale") is None
     feat = store.read_feature(tmp_project, "locked")
     assert feat["session_id"] is None
