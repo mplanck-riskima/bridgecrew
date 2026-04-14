@@ -544,7 +544,7 @@ class ClaudePromptCog(commands.Cog):
         # Start streaming with a cancel button
         cancel_fn = lambda: runner.cancel(thread_id)
         streamer = DiscordStreamer(channel, on_cancel=cancel_fn)
-        await streamer.start(prompt_preview=prompt if show_prompt_preview else "", persona_name=persona_name, session_id=session_id or "")
+        await streamer.start(prompt_preview=prompt if show_prompt_preview else "", persona_name=persona_name, session_id=session_id or "", feature_name=feature.name if feature else "")
 
         # Create a background task to periodically flush the buffer
         async def tick_loop(s=streamer):
