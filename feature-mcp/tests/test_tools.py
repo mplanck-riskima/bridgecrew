@@ -216,3 +216,98 @@ def test_feature_add_milestone(mcp_fixture, tmp_project, store):
     assert len(feat["milestones"]) == 1
     assert feat["milestones"][0]["text"] == "Wired up the pipeline"
     assert "timestamp" in feat["milestones"][0]
+
+
+# --- feature_abandon_sessions ---
+
+def test_feature_abandon_sessions_clears_in_memory_session(mcp_fixture, tmp_project, store):
+    mcp, store, _ = mcp_fixture
+    data = _active_feature("locked-feat", "sess-stale")
+    store.write_feature(tmp_project, "locked-feat", data)
+    store.register_session(tmp_project, "sess-stale", "locked-feat")
+
+    result = json.loads(mcp.call("feature_abandon_sessions",
+                                  project_dir=str(tmp_project),
+                                  feature_name="locked-feat"))
+
+    assert result["status"] == "ok"
+    assert result["abandoned_count"] >= 1
+    assert store.get_session_feature(tmp_project, "sess-stale") is None
+    feat = store.read_feature(tmp_project, "locked-feat")
+    statuses = [s["status"] for s in feat["sessions"]]
+    assert "abandoned" in statuses
+    assert "active" not in statuses
+
+
+def test_feature_abandon_sessions_clears_stale_json_session(mcp_fixture, tmp_project, store):
+    mcp, store, _ = mcp_fixture
+    from feature_store import _now_iso as _n
+    now = _n()
+    data = {
+        "name": "stale-feat", "status": "active", "session_id": "sess-ghost",
+        "sessions": [{"session_id": "sess-ghost", "session_start": now,
+                       "source": "cli", "status": "active"}],
+        "milestones": [], "started_at": now, "completed_at": None,
+        "total_cost_usd": 0.0, "total_input_tokens": 0, "total_output_tokens": 0,
+    }
+    store.write_feature(tmp_project, "stale-feat", data)
+    # Intentionally NOT calling store.register_session
+
+    result = json.loads(mcp.call("feature_abandon_sessions",
+                                  project_dir=str(tmp_project),
+                                  feature_name="stale-feat"))
+
+    assert result["status"] == "ok"
+    feat = store.read_feature(tmp_project, "stale-feat")
+    statuses = [s["status"] for s in feat["sessions"]]
+    assert "abandoned" in statuses
+    assert "active" not in statuses
+
+
+def test_feature_abandon_sessions_clears_session_id_field(mcp_fixture, tmp_project, store):
+    mcp, store, _ = mcp_fixture
+    data = _active_feature("ptr-feat", "sess-ptr")
+    store.write_feature(tmp_project, "ptr-feat", data)
+    store.register_session(tmp_project, "sess-ptr", "ptr-feat")
+
+    mcp.call("feature_abandon_sessions",
+             project_dir=str(tmp_project), feature_name="ptr-feat")
+
+    feat = store.read_feature(tmp_project, "ptr-feat")
+    assert feat["session_id"] is None
+
+
+def test_feature_abandon_sessions_preserves_feature_status(mcp_fixture, tmp_project, store):
+    mcp, store, _ = mcp_fixture
+    data = _active_feature("still-active", "sess-1")
+    store.write_feature(tmp_project, "still-active", data)
+    store.register_session(tmp_project, "sess-1", "still-active")
+
+    mcp.call("feature_abandon_sessions",
+             project_dir=str(tmp_project), feature_name="still-active")
+
+    feat = store.read_feature(tmp_project, "still-active")
+    assert feat["status"] == "active"
+
+
+def test_feature_abandon_sessions_unknown_feature(mcp_fixture, tmp_project):
+    mcp, store, _ = mcp_fixture
+    result = json.loads(mcp.call("feature_abandon_sessions",
+                                  project_dir=str(tmp_project),
+                                  feature_name="does-not-exist"))
+    assert "error" in result
+
+
+def test_feature_abandon_sessions_allows_clean_resume_after(mcp_fixture, tmp_project, store):
+    mcp, store, _ = mcp_fixture
+    data = _active_feature("resumable", "sess-old")
+    store.write_feature(tmp_project, "resumable", data)
+    store.register_session(tmp_project, "sess-old", "resumable")
+
+    mcp.call("feature_abandon_sessions",
+             project_dir=str(tmp_project), feature_name="resumable")
+
+    result = json.loads(mcp.call("feature_resume",
+                                  project_dir=str(tmp_project),
+                                  session_id="sess-new", feature_name="resumable"))
+    assert result["status"] == "resumed"

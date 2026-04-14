@@ -233,6 +233,26 @@ def register_tools(mcp, store: FeatureStore) -> None:
         store.write_feature(pdir, data["name"], data)
         return json.dumps({"status": "added", "milestone": milestone})
 
+    @mcp.tool()
+    def feature_abandon_sessions(project_dir: str, feature_name: str) -> str:
+        """Abandon all active sessions for a feature, clearing any conflict lock.
+        The feature remains active and can be resumed cleanly afterward."""
+        try:
+            pdir = store.ensure_project_dir(project_dir)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+
+        data = store.read_feature(pdir, feature_name)
+        if not data:
+            return json.dumps({"error": f"Feature '{feature_name}' not found"})
+
+        count = _abandon_all_sessions(store, pdir, feature_name)
+        return json.dumps({
+            "status": "ok",
+            "feature_name": feature_name,
+            "abandoned_count": count,
+        })
+
 
 # --- Module-level helpers ---
 
@@ -267,6 +287,42 @@ def _abandon_session(store: FeatureStore, project_dir: Path, feature_name: str, 
                 s["abandoned_at"] = _now_iso()
         store.write_feature(project_dir, feature_name, data)
     store.unregister_session(session_id)
+
+
+def _abandon_all_sessions(store: FeatureStore, project_dir: Path, feature_name: str) -> int:
+    """Abandon all active sessions for a feature (both in-memory and stale JSON entries).
+    Clears the top-level session_id pointer. Returns the number of session entries abandoned."""
+    now = _now_iso()
+
+    # Collect all session IDs registered in memory for this feature
+    active_sids = [
+        sid for sid, (pdir, fname) in list(store._sessions.items())
+        if pdir == project_dir and to_snake(fname) == to_snake(feature_name)
+    ]
+
+    # Read feature data once
+    data = store.read_feature(project_dir, feature_name)
+    if data is None:
+        for sid in active_sids:
+            store.unregister_session(sid)
+        return len(active_sids)
+
+    # Mark all active session entries as abandoned (covers stale JSON sessions too)
+    abandoned_count = 0
+    for s in data.get("sessions", []):
+        if s.get("status") == "active":
+            s["status"] = "abandoned"
+            s["abandoned_at"] = now
+            abandoned_count += 1
+
+    data["session_id"] = None
+    store.write_feature(project_dir, feature_name, data)
+
+    # Unregister in-memory sessions
+    for sid in active_sids:
+        store.unregister_session(sid)
+
+    return abandoned_count
 
 
 def _render_summary(data: dict, summary: str) -> str:
