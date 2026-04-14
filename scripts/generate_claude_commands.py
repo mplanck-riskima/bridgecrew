@@ -11,8 +11,8 @@ Defaults:
     --claude-md   ~/.claude/CLAUDE.md
 """
 import argparse
-import json
 import re
+import sys
 from pathlib import Path
 
 
@@ -34,6 +34,10 @@ Only call again with `force=True` if they confirm.
 
 On success, confirm: "Feature **`$ARGUMENTS`** started."
 If a previously active feature was displaced, mention it by name.
+
+## Summary Format
+
+{SUMMARY_FORMAT}
 """
 
 _COMPLETE_FEATURE = """\
@@ -50,6 +54,10 @@ Call `feature_complete` with:
   - Notable files changed or created
 
 On success, confirm: "Feature **`<name>`** completed. Summary written to `features/<name>.md`."
+
+## Summary Format
+
+{SUMMARY_FORMAT}
 """
 
 _RESUME_FEATURE = """\
@@ -68,6 +76,10 @@ fields to the user verbatim, then ask if they want to force-take the feature.
 Only call again with `force=True` if they confirm.
 
 On success, confirm: "Resumed feature **`<name>`**."
+
+## Summary Format
+
+{SUMMARY_FORMAT}
 """
 
 _LIST_FEATURES = """\
@@ -123,13 +135,52 @@ COMMANDS: dict[str, str] = {
 }
 
 
-def generate(output_dir: Path) -> list[str]:
+_SNAKE_RULE = (
+    "Feature names are stored in snake_case. "
+    "For example: my_feature, add_login, fix_auth_bug. "
+    "Always convert names to snake_case when calling feature tools."
+)
+
+
+def extract_section(text: str, section_name: str) -> str:
+    """Extract the body of a ## section from markdown text, stopping at the next ## heading."""
+    pattern = re.compile(
+        r"^## " + re.escape(section_name) + r"\s*\n(.*?)(?=^## |\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    match = pattern.search(text)
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def render_command(template: str, summary_format: str) -> str:
+    """Replace {SUMMARY_FORMAT} and {SNAKE_RULE} placeholders in a command template."""
+    return template.replace("{SUMMARY_FORMAT}", summary_format).replace("{SNAKE_RULE}", _SNAKE_RULE)
+
+
+def build_claude_md_block(lifecycle_text: str) -> str:
+    """Wrap lifecycle doc text in feature-lifecycle CLAUDE.md markers."""
+    return "# BEGIN: feature-lifecycle\n" + lifecycle_text.strip() + "\n# END: feature-lifecycle"
+
+
+def generate(output_dir: Path, lifecycle_path: Path | None = None) -> list[str]:
     """Write command .md files. Returns list of written paths."""
+    if lifecycle_path is not None:
+        if not lifecycle_path.exists():
+            print(f"Error: lifecycle doc not found: {lifecycle_path}", file=sys.stderr)
+            raise SystemExit(1)
+        lifecycle_text = lifecycle_path.read_text(encoding="utf-8")
+        summary_format = extract_section(lifecycle_text, "Summary Format")
+    else:
+        summary_format = ""
+
     output_dir.mkdir(parents=True, exist_ok=True)
     written = []
-    for name, content in COMMANDS.items():
+    for name, template in COMMANDS.items():
+        rendered = render_command(template, summary_format)
         out_path = output_dir / f"{name}.md"
-        out_path.write_text(content, encoding="utf-8")
+        out_path.write_text(rendered, encoding="utf-8")
         written.append(str(out_path))
     return written
 
@@ -184,41 +235,27 @@ def merge_claude_md(claude_md_path: Path, block: str) -> None:
     claude_md_path.write_text(new_content, encoding="utf-8")
 
 
-def merge_mcp_json(mcp_json_path: Path) -> None:
-    """Add feature-mcp entry to ~/.claude/.mcp.json, creating if needed."""
-    entry = {
-        "type": "sse",
-        "url": "http://localhost:8765/mcp",
-    }
-    if mcp_json_path.exists():
-        try:
-            data = json.loads(mcp_json_path.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    else:
-        mcp_json_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {}
-
-    data["feature-mcp"] = entry
-    mcp_json_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
-
-def merge_settings_json(settings_path: Path) -> None:
-    """Add feature-mcp to enabledMcpjsonServers in ~/.claude/settings.json."""
-    if settings_path.exists():
-        try:
-            data = json.loads(settings_path.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    else:
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {}
-
-    servers = data.get("enabledMcpjsonServers", [])
-    if "feature-mcp" not in servers:
-        servers.append("feature-mcp")
-    data["enabledMcpjsonServers"] = servers
-    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+def register_mcp_server() -> bool:
+    """Register feature-mcp via `claude mcp add --scope user`. Returns True on success."""
+    import shutil
+    import subprocess
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        print("WARNING: claude CLI not found — skipping MCP registration.", file=sys.stderr)
+        print("  Run manually: claude mcp add --scope user --transport sse feature-mcp http://localhost:8765/mcp/sse", file=sys.stderr)
+        return False
+    result = subprocess.run(
+        [claude_bin, "mcp", "add", "--scope", "user", "--transport", "sse",
+         "feature-mcp", "http://localhost:8765/mcp/sse"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        # "already exists" isn't an error we care about
+        if "already" in (result.stderr + result.stdout).lower():
+            return True
+        print(f"WARNING: claude mcp add failed: {result.stderr.strip()}", file=sys.stderr)
+        return False
+    return True
 
 
 def main() -> None:
@@ -236,24 +273,17 @@ def main() -> None:
         help="Path to user-level CLAUDE.md (default: ~/.claude/CLAUDE.md)",
     )
     parser.add_argument(
-        "--mcp-json",
+        "--lifecycle",
         type=Path,
-        default=Path.home() / ".claude" / ".mcp.json",
-        help="Path to ~/.claude/.mcp.json (default: ~/.claude/.mcp.json)",
-    )
-    parser.add_argument(
-        "--settings-json",
-        type=Path,
-        default=Path.home() / ".claude" / "settings.json",
-        help="Path to ~/.claude/settings.json (default: ~/.claude/settings.json)",
+        default=None,
+        help="Path to feature-lifecycle.md to inject Summary Format into commands",
     )
     parser.add_argument("--skip-claude-md", action="store_true")
-    parser.add_argument("--skip-mcp-json", action="store_true")
-    parser.add_argument("--skip-settings", action="store_true")
+    parser.add_argument("--skip-mcp", action="store_true")
     args = parser.parse_args()
 
     print(f"Output dir: {args.output_dir}")
-    written = generate(args.output_dir)
+    written = generate(args.output_dir, args.lifecycle)
     print(f"\nGenerated {len(written)} command files:")
     for path in written:
         print(f"  {path}")
@@ -262,13 +292,10 @@ def main() -> None:
         merge_claude_md(args.claude_md, _CLAUDE_MD_BLOCK)
         print(f"\nMerged feature-mcp block into: {args.claude_md}")
 
-    if not args.skip_mcp_json:
-        merge_mcp_json(args.mcp_json)
-        print(f"Registered feature-mcp in: {args.mcp_json}")
-
-    if not args.skip_settings:
-        merge_settings_json(args.settings_json)
-        print(f"Enabled feature-mcp in: {args.settings_json}")
+    if not args.skip_mcp:
+        ok = register_mcp_server()
+        if ok:
+            print("Registered feature-mcp server (user scope) via claude mcp add")
 
     print("\nDone.")
 
