@@ -9,6 +9,10 @@ else
     PYTHON="$SCRIPT_DIR/venv/bin/python"
 fi
 
+echo "=== Installing test dependencies ==="
+"$PYTHON" -m pip install -q -r "$SCRIPT_DIR/requirements-test.txt"
+"$PYTHON" -m pip install -q -r "$SCRIPT_DIR/dashboard/backend/requirements.txt"
+
 echo "=== Bot Tests ==="
 "$PYTHON" -m pytest "$SCRIPT_DIR/tests/bot/" -v "$@"
 

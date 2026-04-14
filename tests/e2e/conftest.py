@@ -41,6 +41,7 @@ def run_claude_prompt(prompt: str, project_dir: Path, timeout: int = 30) -> str:
 
     cmd = [
         "claude", "-p",
+        "--verbose",
         "--output-format", "stream-json",
         "--dangerously-skip-permissions",
         "--append-system-prompt-file", str(prompt_file),

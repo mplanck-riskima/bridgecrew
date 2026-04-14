@@ -9,6 +9,8 @@ else
     PYTHON="$SCRIPT_DIR/venv/bin/python"
 fi
 
+"$PYTHON" -m pip install -q -r "$SCRIPT_DIR/requirements-test.txt"
+
 if ! command -v claude >/dev/null 2>&1; then
     echo "Skipping e2e tests: claude CLI not on PATH"
     exit 0
