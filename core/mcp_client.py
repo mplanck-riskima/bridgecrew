@@ -49,7 +49,7 @@ async def get_session_feature(project_dir: Path, session_id: str) -> dict | None
 
 async def restart_server() -> None:
     """Tell the feature-mcp server to restart (POST /admin/restart)."""
-    url = f"{MCP_BASE}/admin/restart"
+    url = f"{MCP_BASE}/api/admin/restart"
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             await client.post(url)
