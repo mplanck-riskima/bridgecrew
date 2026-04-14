@@ -112,7 +112,7 @@ async def post_cost(
 async def abandon_feature_sessions(project_dir: Path, feature_name: str) -> int | None:
     """Abandon all active sessions for a feature.
     Returns the number of sessions abandoned on success, or None on failure."""
-    url = f"{MCP_BASE}/api/projects/{_encode(project_dir)}/features/{feature_name}/abandon-sessions"
+    url = f"{MCP_BASE}/api/projects/{_encode(project_dir)}/features/{_encode(feature_name)}/abandon-sessions"
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             r = await client.post(url)
