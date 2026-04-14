@@ -351,6 +351,71 @@ class NewFeatureModal(discord.ui.Modal, title="New Feature"):
             ))
 
 
+# ── Abandon Feature Sessions UI ──────────────────────────────────────────────
+
+class AbandonSessionsSelect(discord.ui.Select):
+    """Dropdown of features that have at least one active session."""
+
+    def __init__(self, features_with_sessions: list[dict], project_dir: Path, bot):
+        options = []
+        for f in features_with_sessions[:25]:
+            active_count = sum(
+                1 for s in f.get("sessions", []) if s.get("status") == "active"
+            )
+            options.append(discord.SelectOption(
+                label=f["name"],
+                value=f["name"],
+                description=f"{active_count} active session(s)",
+            ))
+        super().__init__(placeholder="Choose a feature...", options=options)
+        self.project_dir = project_dir
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction):
+        name = self.values[0]
+        view = AbandonSessionsConfirmView(name, self.project_dir, self.bot)
+        await interaction.response.edit_message(
+            content=(
+                f"Abandon all active sessions for **`{name}`**?\n"
+                "The feature stays active and can be resumed without a conflict error."
+            ),
+            view=view,
+        )
+
+
+class AbandonSessionsSelectView(discord.ui.View):
+    def __init__(self, features_with_sessions: list[dict], project_dir: Path, bot):
+        super().__init__(timeout=60)
+        self.add_item(AbandonSessionsSelect(features_with_sessions, project_dir, bot))
+
+
+class AbandonSessionsConfirmView(discord.ui.View):
+    def __init__(self, feature_name: str, project_dir: Path, bot):
+        super().__init__(timeout=60)
+        self.feature_name = feature_name
+        self.project_dir = project_dir
+        self.bot = bot
+
+    @discord.ui.button(label="Abandon Sessions", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from core.mcp_client import abandon_feature_sessions as _abandon
+        success = await _abandon(self.project_dir, self.feature_name)
+        if success:
+            await interaction.response.edit_message(
+                content=f"Cleared active sessions for **`{self.feature_name}`**. You can now resume it without a conflict.",
+                view=None,
+            )
+        else:
+            await interaction.response.edit_message(
+                content="Failed to contact the feature-mcp server. Try again or use `/restart-server`.",
+                view=None,
+            )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Cancelled.", view=None)
+
+
 # ── Cog ───────────────────────────────────────────────────────────────────────
 
 class FeaturesCog(commands.Cog):
@@ -626,6 +691,40 @@ class FeaturesCog(commands.Cog):
 
         view = DiscardFeatureView(features, project_dir, self.bot)
         await interaction.response.send_message("Pick a feature to discard:", view=view, ephemeral=True)
+
+    @captains_only()
+    @app_commands.command(
+        name="abandon-feature-sessions",
+        description="Clear stale session locks on a feature so it can be resumed without a conflict",
+    )
+    async def abandon_feature_sessions(self, interaction: discord.Interaction) -> None:
+        project, project_dir = self._resolve_project(interaction)
+        if not project:
+            await interaction.response.send_message(
+                "Use this command inside a project thread.", ephemeral=True
+            )
+            return
+
+        from core.mcp_client import get_features as _get_features
+        features = await _get_features(project_dir)
+        features_with_sessions = [
+            f for f in features
+            if any(s.get("status") == "active" for s in f.get("sessions", []))
+        ]
+
+        if not features_with_sessions:
+            await interaction.response.send_message(
+                "No features with active sessions — nothing to abandon.",
+                ephemeral=True,
+            )
+            return
+
+        view = AbandonSessionsSelectView(features_with_sessions, project_dir, self.bot)
+        await interaction.response.send_message(
+            "Pick a feature to clear its active sessions:",
+            view=view,
+            ephemeral=True,
+        )
 
     @app_commands.command(name="list-features", description="List all features for this project")
     @captains_only()
