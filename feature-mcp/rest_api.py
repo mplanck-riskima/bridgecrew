@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from urllib.parse import unquote
 
 from feature_store import FeatureStore, _now_iso
-from mcp_tools import _conflict_response, _abandon_session, _render_summary
+from mcp_tools import _conflict_response, _abandon_session, _abandon_all_sessions, _render_summary
 
 
 class CostPayload(BaseModel):
@@ -238,5 +238,20 @@ def create_api_router(store: FeatureStore) -> APIRouter:
         data.setdefault("milestones", []).append(milestone)
         store.write_feature(pdir, data["name"], data)
         return {"status": "added", "milestone": milestone}
+
+    @router.post("/projects/{encoded_path:path}/features/{feature_name}/abandon-sessions")
+    def post_abandon_sessions(encoded_path: str, feature_name: str):
+        project_dir_str = unquote(encoded_path)
+        try:
+            pdir = store.ensure_project_dir(project_dir_str)
+        except ValueError:
+            raise HTTPException(status_code=404, detail=f"Unknown project: {project_dir_str}")
+
+        data = store.read_feature(pdir, feature_name)
+        if not data:
+            raise HTTPException(status_code=404, detail=f"Feature '{feature_name}' not found")
+
+        count = _abandon_all_sessions(store, pdir, feature_name)
+        return {"status": "ok", "feature_name": feature_name, "abandoned_count": count}
 
     return router

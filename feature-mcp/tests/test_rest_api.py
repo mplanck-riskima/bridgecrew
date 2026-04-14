@@ -272,3 +272,46 @@ def test_rest_milestone_no_active(client):
     )
     assert r.status_code == 200
     assert "error" in r.json()
+
+
+# ── helpers for abandon-sessions tests ────────────────────────────────────────
+def _active_feat_data(name, session_id):
+    from feature_store import _now_iso
+    now = _now_iso()
+    return {
+        "name": name, "status": "active", "session_id": session_id,
+        "sessions": [{"session_id": session_id, "session_start": now,
+                       "source": "cli", "status": "active"}],
+        "milestones": [], "started_at": now, "completed_at": None,
+        "total_cost_usd": 0.0, "total_input_tokens": 0, "total_output_tokens": 0,
+    }
+
+
+# ── POST .../features/{name}/abandon-sessions ──────────────────────────────────
+def test_abandon_sessions_endpoint_clears_sessions(client):
+    c, store, tmp_project = client
+    data = _active_feat_data("locked", "sess-stale")
+    store.write_feature(tmp_project, "locked", data)
+    store.register_session(tmp_project, "sess-stale", "locked")
+
+    r = c.post(f"/api/projects/{_encode(tmp_project)}/features/locked/abandon-sessions")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["abandoned_count"] >= 1
+    assert store.get_session_feature(tmp_project, "sess-stale") is None
+    feat = store.read_feature(tmp_project, "locked")
+    assert feat["session_id"] is None
+
+
+def test_abandon_sessions_endpoint_feature_not_found(client):
+    c, store, tmp_project = client
+    r = c.post(f"/api/projects/{_encode(tmp_project)}/features/ghost/abandon-sessions")
+    assert r.status_code == 404
+
+
+def test_abandon_sessions_endpoint_unknown_project(client):
+    c, store, tmp_project = client
+    r = c.post(f"/api/projects/{_encode('/nope')}/features/any/abandon-sessions")
+    assert r.status_code == 404
