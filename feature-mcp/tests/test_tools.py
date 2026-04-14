@@ -241,8 +241,7 @@ def test_feature_abandon_sessions_clears_in_memory_session(mcp_fixture, tmp_proj
 
 def test_feature_abandon_sessions_clears_stale_json_session(mcp_fixture, tmp_project, store):
     mcp, store, _ = mcp_fixture
-    from feature_store import _now_iso as _n
-    now = _n()
+    now = _now_iso()
     data = {
         "name": "stale-feat", "status": "active", "session_id": "sess-ghost",
         "sessions": [{"session_id": "sess-ghost", "session_start": now,

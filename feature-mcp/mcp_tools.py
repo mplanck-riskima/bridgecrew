@@ -295,17 +295,10 @@ def _abandon_all_sessions(store: FeatureStore, project_dir: Path, feature_name: 
     now = _now_iso()
 
     # Collect all session IDs registered in memory for this feature
-    active_sids = [
-        sid for sid, (pdir, fname) in list(store._sessions.items())
-        if pdir == project_dir and to_snake(fname) == to_snake(feature_name)
-    ]
+    active_sids = store.get_all_sessions_for_feature(project_dir, feature_name)
 
     # Read feature data once
     data = store.read_feature(project_dir, feature_name)
-    if data is None:
-        for sid in active_sids:
-            store.unregister_session(sid)
-        return len(active_sids)
 
     # Mark all active session entries as abandoned (covers stale JSON sessions too)
     abandoned_count = 0

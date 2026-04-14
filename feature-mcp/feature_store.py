@@ -90,6 +90,13 @@ class FeatureStore:
                 return sid
         return None
 
+    def get_all_sessions_for_feature(self, project_dir: Path, name: str) -> list[str]:
+        """Return all in-memory session IDs associated with this feature."""
+        return [
+            sid for sid, (pdir, fname) in self._sessions.items()
+            if pdir == project_dir and to_snake(fname) == to_snake(name)
+        ]
+
     def startup(self) -> list[str]:
         log: list[str] = []
         self._sessions.clear()
