@@ -399,10 +399,11 @@ class AbandonSessionsConfirmView(discord.ui.View):
     @discord.ui.button(label="Abandon Sessions", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         from core.mcp_client import abandon_feature_sessions as _abandon
-        success = await _abandon(self.project_dir, self.feature_name)
-        if success:
+        count = await _abandon(self.project_dir, self.feature_name)
+        if count is not None:
+            session_word = "session" if count == 1 else "sessions"
             await interaction.response.edit_message(
-                content=f"Cleared active sessions for **`{self.feature_name}`**. You can now resume it without a conflict.",
+                content=f"Abandoned {count} active {session_word} for **`{self.feature_name}`**. You can now resume it cleanly.",
                 view=None,
             )
         else:

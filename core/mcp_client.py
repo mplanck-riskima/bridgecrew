@@ -109,13 +109,16 @@ async def post_cost(
             logger.warning("feature-mcp post_cost failed: %s", exc)
 
 
-async def abandon_feature_sessions(project_dir: Path, feature_name: str) -> bool:
-    """Abandon all active sessions for a feature. Returns True on success."""
+async def abandon_feature_sessions(project_dir: Path, feature_name: str) -> int | None:
+    """Abandon all active sessions for a feature.
+    Returns the number of sessions abandoned on success, or None on failure."""
     url = f"{MCP_BASE}/api/projects/{_encode(project_dir)}/features/{feature_name}/abandon-sessions"
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             r = await client.post(url)
-            return r.status_code == 200
+            if r.status_code == 200:
+                return r.json().get("abandoned_count", 0)
+            return None
         except Exception as exc:
             logger.warning("feature-mcp abandon_feature_sessions failed: %s", exc)
-            return False
+            return None
