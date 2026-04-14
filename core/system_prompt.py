@@ -44,11 +44,11 @@ NO_PERSONA = (
 
 _FILE_SENDING = (
     "You can attach files from the project directory to the Discord thread by including "
-    "this marker anywhere in your response: [send-file: path/to/file.ext] — "
+    "this marker anywhere in your response: [send-file: /absolute/path/to/file.ext] — "
     "The bot will strip the marker and upload the file as a Discord attachment. "
     "Use this when the user asks you to share, send, or show them a file, "
     "or when you've generated a file they need to download. "
-    "The path must be relative to the project root."
+    "The path must be an absolute path (e.g. M:/myproject/output/report.pdf)."
 )
 
 _ASK_USER = (

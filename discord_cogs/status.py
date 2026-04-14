@@ -267,13 +267,39 @@ class StatusCog(commands.Cog):
 
         from core.state import load_project_state, save_project_state
         state = load_project_state(project_dir)
+        old_session_id = state.get("default_session_id")
         state["default_session_id"] = None
         save_project_state(project_dir, state)
         label = f"feature `{_active_feat_name}`" if _active_feat_name else "project session"
 
-        state["default_session_id"] = None
-        save_project_state(project_dir, state)
-        await interaction.response.send_message(f"Context reset for {label}. The next prompt will start a fresh Claude session.")
+        if _active_feat_name and old_session_id:
+            await interaction.response.send_message(
+                f"Context reset for {label}. Capturing a milestone snapshot before starting a fresh session..."
+            )
+        else:
+            await interaction.response.send_message(f"Context reset for {label}. Starting a fresh Claude session...")
+
+        if _active_feat_name:
+            from discord_cogs.claude_prompt import ClaudePromptCog
+            prompt_cog = self.bot.get_cog("ClaudePromptCog")
+            if prompt_cog:
+                if old_session_id:
+                    # Capture a milestone from the current context before the reset
+                    await prompt_cog.run_feature_context_reset_session(
+                        channel=channel,
+                        project_dir=project_dir,
+                        feature_name=_active_feat_name,
+                        old_session_id=old_session_id,
+                    )
+                else:
+                    # No existing session — just resume under a new one
+                    await prompt_cog.run_feature_init_session(
+                        channel=channel,
+                        project_dir=project_dir,
+                        feature_name=_active_feat_name,
+                        action="resume",
+                        session_id=None,
+                    )
 
 
 async def setup(bot: commands.Bot) -> None:

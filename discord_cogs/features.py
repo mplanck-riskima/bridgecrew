@@ -175,6 +175,14 @@ class DiscardConfirmView(discord.ui.View):
 
         results.append("Removed from feature tracking")
 
+        # Clear the active feature name from project state if it matches the discarded feature
+        from core.state import load_project_state as _lps_d, save_project_state as _sps_d
+        _dstate = _lps_d(self.project_dir)
+        if _dstate.get("active_feature_name") == self.feature_name:
+            _dstate.pop("active_feature_name", None)
+            _dstate.pop("pending_feature_op", None)
+            _sps_d(self.project_dir, _dstate)
+
         await interaction.response.edit_message(
             content=f"**Discarded `{self.feature_name}`.**\n" + "\n".join(f"- {r}" for r in results),
             view=None,
@@ -536,16 +544,37 @@ class FeaturesCog(commands.Cog):
             return
 
         state = load_project_state(project_dir)
-        op: dict = {"action": "complete"}
+        session_id = state.get("default_session_id")
+        if not session_id:
+            await interaction.response.send_message(
+                "No active Claude session found for this thread. Start a feature first.",
+                ephemeral=True,
+            )
+            return
+
+        # Resolve feature name from MCP store if not explicitly provided
         if name:
-            op["name"] = name
-        state["pending_feature_op"] = op
-        save_project_state(project_dir, state)
+            feature_name = name
+        else:
+            from core.mcp_client import get_session_feature as _get_sf
+            feat_dict = await _get_sf(project_dir, session_id)
+            if not feat_dict:
+                await interaction.response.send_message(
+                    "No active feature found for this session. Use `/start-feature` or `/resume-feature` first.",
+                    ephemeral=True,
+                )
+                return
+            feature_name = feat_dict["name"]
 
         await interaction.response.send_message(
-            "Send a final message describing what was accomplished — Claude will complete the feature and write the summary.",
+            f"Completing **`{feature_name}`** — Claude will review the work, write the summary, and close out the feature.",
             ephemeral=True,
         )
+        prompt_cog = self.bot.cogs.get("ClaudePromptCog")
+        if prompt_cog:
+            asyncio.create_task(prompt_cog.run_feature_complete_session(
+                interaction.channel, project_dir, feature_name, session_id,
+            ))
 
     @captains_only()
     @app_commands.command(name="resume-session", description="Resume a CLI session from this machine in Discord")

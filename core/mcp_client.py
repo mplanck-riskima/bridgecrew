@@ -47,6 +47,40 @@ async def get_session_feature(project_dir: Path, session_id: str) -> dict | None
     return None
 
 
+async def restart_server() -> None:
+    """Tell the feature-mcp server to restart (POST /admin/restart)."""
+    url = f"{MCP_BASE}/admin/restart"
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            await client.post(url)
+        except httpx.RemoteProtocolError:
+            # Server exits mid-response — that's expected on restart
+            pass
+        except Exception as exc:
+            logger.warning("feature-mcp restart failed: %s", exc)
+
+
+async def complete_feature(
+    project_dir: Path,
+    session_id: str,
+    summary: str = "",
+) -> bool:
+    """Mark the active feature as completed via the REST API.
+
+    Safe to call even if Claude already called feature_complete via MCP — if the
+    session has already been unregistered the server returns a non-200 status and
+    we ignore it.  Returns True if the server confirmed completion.
+    """
+    url = f"{MCP_BASE}/api/projects/{_encode(project_dir)}/sessions/{session_id}/complete"
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            r = await client.post(url, json={"summary": summary})
+            return r.status_code == 200
+        except Exception as exc:
+            logger.warning("feature-mcp complete_feature failed: %s", exc)
+            return False
+
+
 async def post_cost(
     project_dir: Path,
     session_id: str,

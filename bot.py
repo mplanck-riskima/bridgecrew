@@ -140,6 +140,9 @@ class ClaudeBot(commands.Bot):
                 await main_channel.send("Restarting... be right back!")
         except discord.HTTPException:
             pass
+        # Restart the feature-mcp server alongside the bot
+        from core.mcp_client import restart_server
+        await restart_server()
         await self.close()
 
     async def notify_worker_done(self) -> None:

@@ -14,7 +14,7 @@ class BridgeCrewSettings(BaseSettings):
         extra="ignore",
     )
 
-    MONGODB_URI: str
+    MONGODB_URI: str = ""
     MONGODB_DATABASE: str = "bridgecrew_dev"
 
     # Shared secret used to authenticate bot → webapp API calls
