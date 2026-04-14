@@ -1225,10 +1225,11 @@ class ClaudePromptCog(commands.Cog):
             _raw_feats = await _get_feats(project_dir)
             features = [Feature.from_dict(f["name"], f) for f in _raw_feats if f.get("name")]
             view = FeatureGateView(features, project_dir, self.bot)
-            gate_msg = await message.channel.send(
+            from core.discord_streamer import discord_retry
+            gate_msg = await discord_retry(message.channel.send(
                 "No active feature — pick one before I start working:",
                 view=view,
-            )
+            ))
             self._system_run_labels[message.channel.id] = "selecting a feature"
             try:
                 await view.select.event.wait()

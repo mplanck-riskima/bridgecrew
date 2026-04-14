@@ -3,6 +3,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
+from typing import TypeVar
 
 import discord
 
@@ -10,6 +11,22 @@ log = logging.getLogger(__name__)
 
 CHAR_LIMIT = 1900
 EDIT_INTERVAL = 0.3  # seconds between edits
+
+T = TypeVar("T")
+
+
+async def discord_retry(coro, *, retries: int = 3, base_delay: float = 2.0):
+    """Retry a Discord API coroutine on transient 5xx errors with exponential backoff."""
+    for attempt in range(retries):
+        try:
+            return await coro
+        except discord.errors.DiscordServerError as exc:
+            if attempt == retries - 1:
+                raise
+            delay = base_delay * (2 ** attempt)
+            log.warning("Discord 5xx on attempt %d/%d, retrying in %.1fs: %s", attempt + 1, retries, delay, exc)
+            await asyncio.sleep(delay)
+    raise RuntimeError("unreachable")
 
 
 class StopView(discord.ui.View):
@@ -57,9 +74,9 @@ class DiscordStreamer:
             label = f"*{display_name} is thinking about:* {truncated}{debug_suffix}"
         if self._on_cancel:
             self._stop_view = StopView(self._on_cancel)
-            self.current_message = await self.channel.send(label, view=self._stop_view)
+            self.current_message = await discord_retry(self.channel.send(label, view=self._stop_view))
         else:
-            self.current_message = await self.channel.send(label)
+            self.current_message = await discord_retry(self.channel.send(label))
         self.all_messages.append(self.current_message)
         self.current_text = ""
 
