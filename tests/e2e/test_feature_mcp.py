@@ -3,7 +3,7 @@
 Real-server smoke tests for feature-mcp.
 
 Requires the feature-mcp server running on localhost:8765.
-Start it with: M:/feature-mcp/start.bat
+Start it with: feature-mcp/start.bat (embedded in this repo)
 
 Skipped automatically if the server is not reachable.
 """

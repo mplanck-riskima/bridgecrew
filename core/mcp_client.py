@@ -31,16 +31,24 @@ async def get_session_feature(project_dir: Path, session_id: str) -> dict | None
     """Return the active feature for this session, or None.
 
     First tries to match by session_id; falls back to any feature with
-    status == "active" so the gate doesn't fire when the session ID has
-    changed (e.g. bot restart) but a feature is still active.
+    status == "active" only when the session_id is completely unknown to the
+    MCP server (e.g. bot restart assigned a new session ID). If the session
+    is known but completed, the feature was properly closed — no fallback.
     """
     features = await get_features(project_dir)
-    # 1. Exact session match
+    # 1. Exact session match (active session)
     for feat in features:
         for sess in feat.get("sessions", []):
             if sess.get("session_id") == session_id and sess.get("status") == "active":
                 return feat
-    # 2. Fallback: any feature that is still marked active
+    # 2. If session_id is known to any feature (even completed), don't fall back —
+    #    the session was properly closed out.
+    for feat in features:
+        for sess in feat.get("sessions", []):
+            if sess.get("session_id") == session_id:
+                return None
+    # 3. Session is completely unknown (bot restart / new session ID) —
+    #    fall back to any feature that is still marked active.
     for feat in features:
         if feat.get("status") == "active":
             return feat

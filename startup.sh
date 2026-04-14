@@ -27,7 +27,7 @@ for arg in "$@"; do
 done
 
 # ── Feature MCP Server ────────────────────────────────────────────────────────
-FEATURE_MCP_DIR="M:/feature-mcp"
+FEATURE_MCP_DIR="$SCRIPT_DIR/feature-mcp"
 FEATURE_MCP_SCRIPT="$FEATURE_MCP_DIR/start.sh"
 
 if [ -f "$FEATURE_MCP_SCRIPT" ]; then
