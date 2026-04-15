@@ -10,7 +10,7 @@ from pymongo import DESCENDING
 from pymongo.errors import DuplicateKeyError
 from ulid import ULID
 
-from app.db import features_col
+from app.db import cost_log_col, features_col
 from app.middleware.api_key import require_api_key
 
 router = APIRouter(tags=["features"])
@@ -73,6 +73,32 @@ def get_feature(feature_id: str) -> dict:
     if doc is None:
         raise HTTPException(status_code=404, detail="Feature not found")
     return doc
+
+
+@router.get("/features/{feature_id}/costs/breakdown")
+def get_feature_cost_breakdown(feature_id: str) -> dict:
+    """Return per-model cost breakdown for a specific feature."""
+    pipeline = [
+        {"$match": {"feature_id": feature_id}},
+        {"$group": {
+            "_id": "$model",
+            "cost_usd": {"$sum": "$cost_usd"},
+            "input_tokens": {"$sum": "$input_tokens"},
+            "output_tokens": {"$sum": "$output_tokens"},
+        }},
+        {"$sort": {"cost_usd": -1}},
+    ]
+    rows = list(cost_log_col().aggregate(pipeline))
+    by_model = {
+        row["_id"]: {
+            "cost_usd": row["cost_usd"],
+            "input_tokens": row["input_tokens"],
+            "output_tokens": row["output_tokens"],
+        }
+        for row in rows
+        if row["_id"]
+    }
+    return {"by_model": by_model}
 
 
 @router.delete("/features/{feature_id}")
