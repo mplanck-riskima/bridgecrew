@@ -67,6 +67,7 @@ def report_feature_started(
     project_id: str,
     feature_name: str,
     session_id: str,
+    feature_id: str = "",
     prompt_template_id: str = "",
     subdir: str = "",
 ) -> str | None:
@@ -77,6 +78,7 @@ def report_feature_started(
     if not _enabled():
         return None
     payload = {
+        "feature_id": feature_id,
         "project_id": project_id,
         "name": feature_name,
         "session_id": session_id,
@@ -105,6 +107,7 @@ def report_feature_completed(
     git_branch: str = "",
     total_input_tokens: int = 0,
     total_output_tokens: int = 0,
+    markdown_content: str | None = None,
 ) -> None:
     """Tell the BridgeCrew dashboard a feature has been completed."""
     if not _enabled() or not feature_id:
@@ -120,6 +123,8 @@ def report_feature_completed(
         payload["total_input_tokens"] = total_input_tokens
     if total_output_tokens:
         payload["total_output_tokens"] = total_output_tokens
+    if markdown_content is not None:
+        payload["markdown_content"] = markdown_content
     try:
         resp = httpx.patch(
             f"{_API_URL}/api/features/{feature_id}",
