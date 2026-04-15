@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from pymongo import DESCENDING
+from pymongo.errors import DuplicateKeyError
 from ulid import ULID
 
 from app.db import features_col
@@ -35,6 +36,7 @@ class FeatureUpdate(BaseModel):
     session_id: str | None = None
     total_input_tokens: int | None = None
     total_output_tokens: int | None = None
+    markdown_content: str | None = None
 
 
 @router.get("/features")
@@ -105,9 +107,13 @@ def create_feature(
         "created_at": datetime.now(UTC),
         "completed_at": None,
     }
-    features_col().insert_one(doc)
-    doc.pop("_id", None)
-    return doc
+    try:
+        features_col().insert_one(doc)
+        doc.pop("_id", None)
+        return doc
+    except DuplicateKeyError:
+        existing = features_col().find_one({"feature_id": doc["feature_id"]}, {"_id": 0})
+        return existing
 
 
 @router.patch("/features/{feature_id}")
