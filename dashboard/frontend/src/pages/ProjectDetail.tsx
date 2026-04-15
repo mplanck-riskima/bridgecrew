@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import StatusBadge from "@/components/StatusBadge";
 import { api } from "@/lib/api";
-import type { ActivityEntry, Feature, Project, PromptTemplate } from "@/lib/types";
+import type { ActivityEntry, Feature, FeatureCostBreakdown, Project, PromptTemplate } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 type Tab = "features" | "activity" | "costs";
@@ -30,6 +30,8 @@ export default function ProjectDetail() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [savingPrompt, setSavingPrompt] = useState(false);
+  const [costBreakdowns, setCostBreakdowns] = useState<Record<string, FeatureCostBreakdown>>({});
+  const [expandedMarkdown, setExpandedMarkdown] = useState<string | null>(null);
 
   useEffect(() => {
     load();
@@ -69,6 +71,16 @@ export default function ProjectDetail() {
     return () => clearInterval(interval);
   }, [tab, id]);
 
+  useEffect(() => {
+    if (tab !== "features" || !project?.features?.length) return;
+    project.features.forEach((f) => {
+      api.getFeatureCostBreakdown(f.feature_id)
+        .then((breakdown) => {
+          setCostBreakdowns((prev) => ({ ...prev, [f.feature_id]: breakdown }));
+        })
+        .catch(() => {});
+    });
+  }, [tab, id, project]);
 
   async function assignPrompt(promptTemplateId: string) {
     if (!id || !project) return;
@@ -226,9 +238,24 @@ export default function ProjectDetail() {
                     <p className="text-sm text-lcars-muted mt-1 italic">{f.summary}</p>
                   )}
                   <div className="flex items-center gap-3 text-xs font-mono text-lcars-muted mt-2">
-                    {f.total_cost_usd > 0 && (
-                      <span className="text-lcars-green">{formatCurrency(f.total_cost_usd)}</span>
-                    )}
+                    {(() => {
+                      const breakdown = costBreakdowns[f.feature_id];
+                      if (breakdown && Object.keys(breakdown.by_model).length > 0) {
+                        return (
+                          <div className="flex flex-col gap-0.5">
+                            {Object.entries(breakdown.by_model).map(([model, data]) => (
+                              <span key={model} className="text-lcars-green">
+                                {model.replace("claude-", "")} {formatCurrency(data.cost_usd)}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      }
+                      if (f.total_cost_usd > 0) {
+                        return <span className="text-lcars-green">{formatCurrency(f.total_cost_usd)}</span>;
+                      }
+                      return null;
+                    })()}
                     {f.subdir && <span>in {f.subdir}/</span>}
                     <span>{formatDate(f.created_at)}</span>
                     {f.completed_at && <span>→ {formatDate(f.completed_at)}</span>}
@@ -260,6 +287,21 @@ export default function ProjectDetail() {
                   )}
                 </div>
               </div>
+              {f.status === "completed" && f.markdown_content && (
+                <div className="mt-3 border-t border-lcars-border pt-3">
+                  <button
+                    onClick={() => setExpandedMarkdown(expandedMarkdown === f.feature_id ? null : f.feature_id)}
+                    className="text-xs font-mono text-lcars-cyan hover:text-lcars-amber tracking-widest transition-colors"
+                  >
+                    {expandedMarkdown === f.feature_id ? "▲ HIDE SUMMARY" : "▼ SHOW SUMMARY"}
+                  </button>
+                  {expandedMarkdown === f.feature_id && (
+                    <pre className="mt-2 text-xs font-mono text-lcars-muted whitespace-pre-wrap break-words leading-relaxed">
+                      {f.markdown_content}
+                    </pre>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
