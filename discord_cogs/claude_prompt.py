@@ -1135,6 +1135,7 @@ class ClaudePromptCog(commands.Cog):
                         None,
                         lambda md=_md_content, fd=_feat_data, cid=_composite_id: _rfc(
                             feature_id=cid,
+                            summary=fd.get("summary", ""),
                             total_cost_usd=fd.get("total_cost_usd", 0.0),
                             total_input_tokens=fd.get("total_input_tokens", 0),
                             total_output_tokens=fd.get("total_output_tokens", 0),

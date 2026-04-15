@@ -80,7 +80,7 @@ export default function ProjectDetail() {
         })
         .catch(() => {});
     });
-  }, [tab, id, project]);
+  }, [tab, id]);
 
   async function assignPrompt(promptTemplateId: string) {
     if (!id || !project) return;
