@@ -1115,6 +1115,32 @@ class ClaudePromptCog(commands.Cog):
                 _cstate.pop("active_feature_name", None)
                 _cstate.pop("pending_feature_op", None)
                 _sps_c(project_dir, _cstate)
+                # Report completion + markdown to dashboard
+                _project = self.bot.project_manager.get_project_by_thread(channel.id)
+                if _project:
+                    from pathlib import Path as _Path
+                    from core.mcp_client import get_features as _gf
+                    from core.bridgecrew_client import report_feature_completed as _rfc
+                    _composite_id = f"{_project.name}:{feature_name}"
+                    _md_path = _Path(project_dir) / "features" / f"{feature_name}.md"
+                    _md_content = None
+                    try:
+                        _md_content = _md_path.read_text(encoding="utf-8")
+                    except Exception:
+                        pass
+                    _feats = await _gf(project_dir)
+                    _feat_data = next((f for f in _feats if f.get("name") == feature_name), {})
+                    _loop = asyncio.get_event_loop()
+                    await _loop.run_in_executor(
+                        None,
+                        lambda md=_md_content, fd=_feat_data, cid=_composite_id: _rfc(
+                            feature_id=cid,
+                            total_cost_usd=fd.get("total_cost_usd", 0.0),
+                            total_input_tokens=fd.get("total_input_tokens", 0),
+                            total_output_tokens=fd.get("total_output_tokens", 0),
+                            markdown_content=md,
+                        ),
+                    )
             finally:
                 self._system_run_labels.pop(thread_id, None)
             await self._worker(thread_id)
