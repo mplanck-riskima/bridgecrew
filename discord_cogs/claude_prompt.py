@@ -947,6 +947,25 @@ class ClaudePromptCog(commands.Cog):
                     await _start_fs(project_dir, last_sid, feature_name)
                 else:
                     await _resume_fs(project_dir, last_sid, feature_name)
+                # Register new features in the dashboard (start only — resume reuses existing record)
+                if action == "start":
+                    _project = self.bot.project_manager.get_project_by_thread(channel.id)
+                    if _project:
+                        from core.state import load_project_state as _lps_init
+                        from core.bridgecrew_client import report_feature_started as _rfs
+                        _state_init = _lps_init(project_dir)
+                        _bc_project_id = _state_init.get("bridgecrew_project_id", "")
+                        _composite_id = f"{_project.name}:{feature_name}"
+                        _loop = asyncio.get_event_loop()
+                        await _loop.run_in_executor(
+                            None,
+                            lambda: _rfs(
+                                project_id=_bc_project_id,
+                                feature_name=feature_name,
+                                session_id=last_sid,
+                                feature_id=_composite_id,
+                            ),
+                        )
             await self._worker(thread_id)
 
         self._workers[thread_id] = asyncio.create_task(_run())
