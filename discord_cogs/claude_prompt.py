@@ -659,7 +659,7 @@ class ClaudePromptCog(commands.Cog):
                         if event.cost_usd:
                             import asyncio as _asyncio
                             from core.bridgecrew_client import report_cost as _report_cost
-                            _feature_bc_id = getattr(feature, "bridgecrew_feature_id", "") if feature else ""
+                            _feature_bc_id = f"{project_name}:{feature.name}" if (project_name and feature) else ""
                             _asyncio.get_event_loop().run_in_executor(
                                 None,
                                 lambda: _report_cost(
@@ -908,18 +908,9 @@ class ClaudePromptCog(commands.Cog):
         thread_id = channel.id
 
         if action == "start":
-            subdir_hint = f", subdir='{subdir}'" if subdir else ""
-            prompt = (
-                f"Call `feature_start(project_dir='{project_dir}', "
-                f"session_id='<your session id>', name='{feature_name}'{subdir_hint})`. "
-                f"Then reply: 'Ready to work on **`{feature_name}`**.' Nothing else."
-            )
+            prompt = f"Reply: 'Ready to work on **`{feature_name}`**.' Nothing else."
         else:
-            prompt = (
-                f"Call `feature_resume(project_dir='{project_dir}', "
-                f"session_id='<your session id>', feature_name='{feature_name}')`. "
-                f"Then reply: 'Resumed **`{feature_name}`**.' Nothing else."
-            )
+            prompt = f"Reply: 'Resumed **`{feature_name}`**.' Nothing else."
 
         if thread_id not in self._queues:
             self._queues[thread_id] = asyncio.Queue()
@@ -932,7 +923,7 @@ class ClaudePromptCog(commands.Cog):
 
         async def _run():
             try:
-                await self._run_stream(
+                last_sid, _, _ = await self._run_stream(
                     channel=channel,
                     runner=self.bot.claude_runner,
                     prompt=prompt,
@@ -945,6 +936,17 @@ class ClaudePromptCog(commands.Cog):
                 )
             finally:
                 self._system_run_labels.pop(thread_id, None)
+            # Register the real CLI session UUID with the MCP server.
+            # Claude doesn't know its own UUID, so the bot does this via REST.
+            if last_sid:
+                from core.mcp_client import (
+                    start_feature_session as _start_fs,
+                    resume_feature_session as _resume_fs,
+                )
+                if action == "start":
+                    await _start_fs(project_dir, last_sid, feature_name)
+                else:
+                    await _resume_fs(project_dir, last_sid, feature_name)
             await self._worker(thread_id)
 
         self._workers[thread_id] = asyncio.create_task(_run())
@@ -970,17 +972,13 @@ class ClaudePromptCog(commands.Cog):
             f"1. Review recent git history (`git log --oneline -20`) and any relevant changed "
             f"files to understand what has been accomplished so far in this session.\n"
             f"2. Call `feature_add_milestone(project_dir='{project_dir}', "
-            f"session_id='<your session id>', text='<your milestone summary>')` with a concise "
+            f"session_id='{old_session_id}', text='<your milestone summary>')` with a concise "
             f"but thorough summary covering: what was built or changed, key files touched, "
             f"and any important design decisions or pending follow-ups.\n\n"
             f"Reply with 'Milestone recorded for **`{feature_name}`**.' when done."
         )
 
-        resume_prompt = (
-            f"Call `feature_resume(project_dir='{project_dir}', "
-            f"session_id='<your session id>', feature_name='{feature_name}')`. "
-            f"Then reply: 'Fresh context ready — resumed **`{feature_name}`**.' Nothing else."
-        )
+        resume_prompt = f"Reply: 'Fresh context ready — resumed **`{feature_name}`**.' Nothing else."
 
         if thread_id not in self._queues:
             self._queues[thread_id] = asyncio.Queue()
@@ -1003,10 +1001,19 @@ class ClaudePromptCog(commands.Cog):
             finally:
                 self._system_run_labels.pop(thread_id, None)
 
+            # Release ALL active session locks for this feature so the fresh session can
+            # resume without conflict.  We use abandon_feature_sessions (by feature name)
+            # rather than complete_feature (by session ID) because the MCP server's
+            # registered session ID may differ from the project-state default_session_id
+            # (e.g. if Claude used a context-derived string when calling feature_resume).
+            # complete_feature would silently no-op in that case, leaving the lock in place.
+            from core.mcp_client import abandon_feature_sessions as _abandon_sessions
+            await _abandon_sessions(project_dir, feature_name)
+
             # Step 2: start fresh session and re-register the feature
             self._system_run_labels[thread_id] = f"resuming feature **`{feature_name}`**"
             try:
-                await self._run_stream(
+                last_sid_2, _, _ = await self._run_stream(
                     channel=channel,
                     runner=self.bot.claude_runner,
                     prompt=resume_prompt,
@@ -1019,6 +1026,11 @@ class ClaudePromptCog(commands.Cog):
                 )
             finally:
                 self._system_run_labels.pop(thread_id, None)
+
+            # Register the fresh session's real CLI UUID with the MCP server
+            if last_sid_2:
+                from core.mcp_client import resume_feature_session as _resume_fs
+                await _resume_fs(project_dir, last_sid_2, feature_name)
 
             await self._worker(thread_id)
 
@@ -1044,7 +1056,7 @@ class ClaudePromptCog(commands.Cog):
             f"The user has completed feature **`{feature_name}`**. Please do the following:\n\n"
             f"1. Review recent git history (`git log --oneline -20`) and any relevant changed "
             f"files to understand what was built.\n"
-            f"2. Call `feature_complete(project_dir='{project_dir}', session_id='<your session id>', "
+            f"2. Call `feature_complete(project_dir='{project_dir}', session_id='{session_id}', "
             f"summary='<your summary>')` with a concise but thorough summary covering: what the "
             f"feature does, key files changed, and any important design decisions.\n"
             f"3. Open `CLAUDE.md` at the project root and add or update the `## Features` section "
@@ -1315,9 +1327,10 @@ class ClaudePromptCog(commands.Cog):
 
         workspace_context = self._build_project_context(include_paths=True)
 
-        # If the feature came from the state fallback (MCP didn't know about it), prepend a
-        # silent instruction to register the session with the MCP server.  This runs inline
-        # with the user's prompt so no extra Claude invocation is needed.
+        # Determine which MCP registration action to take after the run.
+        # The bot registers the session via REST using the real CLI UUID, so Claude
+        # no longer needs a prompt prefix instructing it to call feature_start/resume.
+        _reg_action: str | None = None
         if _feature_needs_mcp_registration and feature:
             import re as _re_reg
             _snake_reg = feature.name.lower().replace("&", "and")
@@ -1326,21 +1339,6 @@ class ClaudePromptCog(commands.Cog):
             _snake_reg = _re_reg.sub(r"_+", "_", _snake_reg).strip("_") or "unnamed"
             _feat_file_reg = project_dir / ".claude" / "features" / f"{_snake_reg}.json"
             _reg_action = "resume" if _feat_file_reg.exists() else "start"
-            if _reg_action == "start":
-                _reg_prefix = (
-                    f"[SYSTEM TASK — do not mention this to the user: call "
-                    f"`feature_start(project_dir='{project_dir}', "
-                    f"session_id='<your session id>', name='{feature.name}')` "
-                    f"before doing anything else.]\n\n"
-                )
-            else:
-                _reg_prefix = (
-                    f"[SYSTEM TASK — do not mention this to the user: call "
-                    f"`feature_resume(project_dir='{project_dir}', "
-                    f"session_id='<your session id>', feature_name='{feature.name}')` "
-                    f"before doing anything else.]\n\n"
-                )
-            prompt = _reg_prefix + prompt
 
         print(f"\n{'='*60}\n[{message.author}] {prompt}\n{'='*60}", flush=True)
 
@@ -1368,6 +1366,18 @@ class ClaudePromptCog(commands.Cog):
             show_prompt_preview=item.was_queued,
             is_scheduled=is_scheduled,
         )
+
+        # Register the real CLI session UUID with the MCP server when needed.
+        # Done after _run_stream so we have the actual UUID, not a Claude-guessed string.
+        if _reg_action and feature and last_session_id:
+            from core.mcp_client import (
+                start_feature_session as _start_fs,
+                resume_feature_session as _resume_fs,
+            )
+            if _reg_action == "start":
+                await _start_fs(project_dir, last_session_id, feature.name)
+            else:
+                await _resume_fs(project_dir, last_session_id, feature.name)
 
         # Report Claude's response to the activity feed (fire-and-forget)
         if bridgecrew_project_id and response_text:
