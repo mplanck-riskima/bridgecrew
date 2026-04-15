@@ -207,9 +207,12 @@ This returns your active feature (if any) and a list of all project features.
 - `feature_add_milestone(project_dir, session_id, text)` — record a mid-session milestone
 - `feature_list(project_dir)` — list all features
 - `feature_discard(project_dir, session_id)` — discard and archive
+- `feature_abandon_sessions(project_dir, feature_name)` — abandon all active sessions for a feature, clearing conflict locks
 
 **Conflict handling:** If `feature_resume` or `feature_start` returns `status: "conflict"`,
 show the warning and recommendation to the user verbatim before calling again with `force=True`.
+Alternatively, call `feature_abandon_sessions(project_dir, feature_name)` to clear the stale lock first,
+then resume normally without `force=True`.
 
 # END: feature-mcp"""
 
