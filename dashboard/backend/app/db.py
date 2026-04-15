@@ -22,7 +22,9 @@ def get_db():
 
 
 def features_col() -> Collection:
-    return get_db()["features"]
+    col = get_db()["features"]
+    col.create_index([("feature_id", ASCENDING)], unique=True, background=True)
+    return col
 
 
 def prompt_templates_col() -> Collection:
@@ -34,7 +36,9 @@ def scheduled_tasks_col() -> Collection:
 
 
 def cost_log_col() -> Collection:
-    return get_db()["cost_log"]
+    col = get_db()["cost_log"]
+    col.create_index([("feature_id", ASCENDING)], background=True)
+    return col
 
 
 def projects_col() -> Collection:
