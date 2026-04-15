@@ -6,6 +6,7 @@ import type {
   CostBreakdown,
   CostTimelineEntry,
   Feature,
+  FeatureCostBreakdown,
   PaginatedResponse,
   PersonaDefinition,
   Project,
@@ -37,6 +38,8 @@ export const api = {
   getFeature: (id: string) => request<Feature>(`/features/${id}`),
   deleteFeature: (id: string) =>
     request<void>(`/features/${id}`, { method: "DELETE" }),
+  getFeatureCostBreakdown: (featureId: string) =>
+    request<FeatureCostBreakdown>(`/features/${encodeURIComponent(featureId)}/costs/breakdown`),
 
   // Prompt templates
   getPrompts: () => request<PromptTemplate[]>("/prompts"),

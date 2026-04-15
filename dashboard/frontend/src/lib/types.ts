@@ -14,8 +14,17 @@ export interface Feature {
   total_output_tokens: number;
   summary: string | null;
   git_branch: string | null;
+  markdown_content: string | null;
   created_at: string;
   completed_at: string | null;
+}
+
+export interface FeatureCostBreakdown {
+  by_model: Record<string, {
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+  }>;
 }
 
 export interface PromptTemplate {
