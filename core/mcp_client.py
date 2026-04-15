@@ -109,6 +109,46 @@ async def post_cost(
             logger.warning("feature-mcp post_cost failed: %s", exc)
 
 
+async def start_feature_session(
+    project_dir: Path,
+    session_id: str,
+    feature_name: str,
+    force: bool = False,
+) -> bool:
+    """Register a new feature session with the MCP server using the real CLI session UUID."""
+    url = f"{MCP_BASE}/api/projects/{_encode(project_dir)}/features/{_encode(feature_name)}/start"
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            r = await client.post(url, json={"session_id": session_id, "force": force})
+            if r.status_code == 200:
+                body = r.json()
+                return "error" not in body
+            return False
+        except Exception as exc:
+            logger.warning("feature-mcp start_feature_session failed: %s", exc)
+            return False
+
+
+async def resume_feature_session(
+    project_dir: Path,
+    session_id: str,
+    feature_name: str,
+    force: bool = False,
+) -> bool:
+    """Register a resumed feature session with the MCP server using the real CLI session UUID."""
+    url = f"{MCP_BASE}/api/projects/{_encode(project_dir)}/sessions/{session_id}/resume"
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            r = await client.post(url, json={"feature_name": feature_name, "force": force})
+            if r.status_code == 200:
+                body = r.json()
+                return "error" not in body
+            return False
+        except Exception as exc:
+            logger.warning("feature-mcp resume_feature_session failed: %s", exc)
+            return False
+
+
 async def abandon_feature_sessions(project_dir: Path, feature_name: str) -> int | None:
     """Abandon all active sessions for a feature.
     Returns the number of sessions abandoned on success, or None on failure."""

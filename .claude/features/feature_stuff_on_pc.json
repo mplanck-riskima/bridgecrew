@@ -5,7 +5,7 @@
   "total_output_tokens": 307483,
   "total_cost_usd": 24.003280699999998,
   "prompt_count": 43,
-  "session_id": "42e2f62b-d551-408f-8986-5eb7f2707d26",
+  "session_id": "c5cfbb73-8145-4db6-92e6-55124ed23e4e",
   "sessions": [
     {
       "session_id": "05d05bbe-475b-429f-9901-9e9c7163a462",
@@ -18,8 +18,38 @@
       "session_start": "2026-04-10T17:47:09.970459+00:00",
       "source": "discord",
       "status": "completed"
+    },
+    {
+      "session_id": "session-bridgecrew-2026-04-14",
+      "session_start": "2026-04-14T18:12:46.738861+00:00",
+      "source": "cli",
+      "status": "completed"
+    },
+    {
+      "session_id": "session-embed-feature-mcp",
+      "session_start": "2026-04-14T18:14:31.184286+00:00",
+      "source": "cli",
+      "status": "active"
+    },
+    {
+      "session_id": "session-start-feature-stuff-on-pc",
+      "session_start": "2026-04-15T19:44:56.644368+00:00",
+      "source": "cli",
+      "status": "active"
+    },
+    {
+      "session_id": "c5cfbb73-8145-4db6-92e6-55124ed23e4e",
+      "session_start": "2026-04-15T22:09:54.847958+00:00",
+      "source": "cli",
+      "status": "completed"
+    },
+    {
+      "session_id": "c5cfbb73-8145-4db6-92e6-55124ed23e4e",
+      "session_start": "2026-04-15T22:10:02.316104+00:00",
+      "source": "cli",
+      "status": "completed"
     }
   ],
   "name": "feature-stuff-on-pc",
-  "completed_at": "2026-04-13T22:17:10.318880+00:00"
+  "completed_at": "2026-04-15T22:10:13.089205+00:00"
 }

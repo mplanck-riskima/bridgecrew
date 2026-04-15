@@ -140,7 +140,12 @@ class ProjectManager:
         # Check for removed projects
         for name in list(self._projects.keys()):
             if name not in discovered:
-                results[name] = "directory missing"
+                project = self._projects.pop(name)
+                if project.thread_id and project.thread_id in self._thread_to_project:
+                    del self._thread_to_project[project.thread_id]
+                self._config = remove_project_from_config(self._config, name)
+                results[name] = "removed (directory missing)"
+                log.info("Removed project %s from tracking — directory not found", name)
 
         save_config(self._config)
         return results

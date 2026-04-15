@@ -1,0 +1,106 @@
+{
+  "name": "test-feature-closure",
+  "status": "active",
+  "session_id": "session-start-feature-stuff-on-pc",
+  "description": "",
+  "sessions": [
+    {
+      "session_id": "discord-bot-test-1776119302",
+      "session_start": "2026-04-13T22:28:22.864043+00:00",
+      "source": "rest",
+      "status": "completed"
+    },
+    {
+      "session_id": "session-bridgecrew-2026-04-14",
+      "session_start": "2026-04-14T21:17:02.822408+00:00",
+      "source": "cli",
+      "status": "completed"
+    },
+    {
+      "session_id": "session-bridgecrew-new",
+      "session_start": "2026-04-14T23:13:40.260595+00:00",
+      "source": "cli",
+      "status": "abandoned",
+      "abandoned_at": "2026-04-15T04:24:49.728259+00:00"
+    },
+    {
+      "session_id": "discord-session-test-feature-closure",
+      "session_start": "2026-04-15T04:24:52.079297+00:00",
+      "source": "cli",
+      "status": "completed"
+    },
+    {
+      "session_id": "discord-session-test-feature-closure",
+      "session_start": "2026-04-15T04:25:45.029465+00:00",
+      "source": "cli",
+      "status": "abandoned",
+      "abandoned_at": "2026-04-15T15:56:57.280476+00:00"
+    },
+    {
+      "session_id": "session-2026-04-15-start",
+      "session_start": "2026-04-15T15:57:06.187548+00:00",
+      "source": "cli",
+      "status": "abandoned",
+      "abandoned_at": "2026-04-15T18:02:58.467834+00:00"
+    },
+    {
+      "session_id": "test-milestone-session",
+      "session_start": "2026-04-15T17:55:39.938989+00:00",
+      "source": "cli",
+      "status": "abandoned",
+      "abandoned_at": "2026-04-15T18:02:58.467834+00:00"
+    },
+    {
+      "session_id": "3d64e581-6f5a-4b97-8880-8bd6b7b14eb6",
+      "session_start": "2026-04-15T18:02:44.843002+00:00",
+      "source": "cli",
+      "status": "abandoned",
+      "abandoned_at": "2026-04-15T18:02:58.467834+00:00"
+    },
+    {
+      "session_id": "session-discord-resume",
+      "session_start": "2026-04-15T18:03:10.656097+00:00",
+      "source": "cli",
+      "status": "active"
+    },
+    {
+      "session_id": "session-start-feature-stuff-on-pc",
+      "session_start": "2026-04-15T19:44:52.031415+00:00",
+      "source": "cli",
+      "status": "active"
+    }
+  ],
+  "milestones": [
+    {
+      "timestamp": "2026-04-14T23:17:26.669504+00:00",
+      "session_id": "session-bridgecrew-new",
+      "text": "Session continuity test: Verified that feature state persists correctly across multiple sessions. This session (session-bridgecrew-new) successfully resumed the test-feature-closure feature after two prior sessions (discord-bot-test-1776119302 via REST, session-bridgecrew-2026-04-14 via CLI) had completed. Confirmed that feature_context returns consistent session ID and feature state within a session. No code changes made \u2014 this is a pure lifecycle/continuity verification feature. Background: the feature-mcp server was recently embedded into the repo (commit b73d2cb) and the feature-stuff-on-pc feature was completed, bringing CLI-based feature tracking to parity with the Discord bot. No pending follow-ups for this test feature."
+    },
+    {
+      "timestamp": "2026-04-14T23:23:40.855404+00:00",
+      "session_id": "session-bridgecrew-new",
+      "text": "Fixed reset-context feature session conflict bug. Two changes made:\n\n1. **discord_cogs/claude_prompt.py** \u2014 In `run_feature_context_reset_session`, added a direct `complete_feature` call (via `core.mcp_client`) on the old session between Step 1 (milestone snapshot) and Step 2 (fresh session resume). This releases the old session's lock on the feature before the new session tries to `feature_resume`, preventing the conflict error that was occurring.\n\n2. **core/project_manager.py** \u2014 In the project sync/discovery loop, changed the \"directory missing\" handling from a no-op label to actually removing the project from tracking: pops from `_projects`, removes from `_thread_to_project` map, removes from config, and saves config. Previously stale projects were flagged but never cleaned up.\n\nPending: verify the reset-context flow end-to-end after bot restart to confirm the fix works."
+    },
+    {
+      "timestamp": "2026-04-15T04:28:03.990267+00:00",
+      "session_id": "discord-session-test-feature-closure",
+      "text": "Completed the full abandon-feature-sessions implementation and verified the lifecycle end-to-end.\n\n**What was built (9 commits, c085dd0\u20135d8b96b):**\n\n1. `_abandon_all_sessions(store, project_dir, feature_name) -> int` helper in `feature-mcp/mcp_tools.py` \u2014 clears both in-memory session registry and stale JSON active-session entries, nulls `data[\"session_id\"]`, leaves feature `status` unchanged.\n2. `get_all_sessions_for_feature()` public method added to `FeatureStore` in `feature-mcp/feature_store.py` \u2014 avoids direct `_sessions` dict access from outside the class.\n3. `feature_abandon_sessions(project_dir, feature_name)` MCP tool in `feature-mcp/mcp_tools.py`.\n4. `POST /api/projects/{path}/features/{feature_name}/abandon-sessions` REST endpoint in `feature-mcp/rest_api.py`.\n5. `abandon_feature_sessions(project_dir, feature_name) -> int | None` async function in `core/mcp_client.py` \u2014 returns count on success, None on failure.\n6. `/abandon-feature-sessions` Discord slash command in `discord_cogs/features.py` with `AbandonSessionsSelect`, `AbandonSessionsSelectView`, `AbandonSessionsConfirmView` UI classes. Dropdown filtered to features with active sessions only; success message shows \"Abandoned N session(s)\".\n7. `scripts/generate_claude_commands.py` updated \u2014 `_CLAUDE_MD_BLOCK` now lists `feature_abandon_sessions` and documents it as an alternative to `force=True` in conflict handling. `setup-claude-pc.sh` was re-run to apply changes to `~/.claude/CLAUDE.md`.\n\n**Tests:** 75 passing in `feature-mcp/tests/` (6 new tool tests, 3 new REST tests).\n\n**Design decisions:**\n- `mcp_client` returns `int | None` (not `bool`) so the Discord UI can surface the abandoned count.\n- Feature `status` intentionally left as `\"active\"` post-abandon \u2014 feature is still ongoing, only the session lock is cleared.\n- All callers pre-check feature existence before calling `_abandon_all_sessions`, so the helper has no defensive null branch.\n\n**Lifecycle verified this session:** conflict \u2192 abandon \u2192 resume cleanly \u2192 complete \u2192 resume again (no conflict). Feature is currently active and completed."
+    },
+    {
+      "timestamp": "2026-04-15T17:55:48.192164+00:00",
+      "session_id": "test-milestone-session",
+      "text": "Context reset test checkpoint (2026-04-15). Active feature: test-feature-closure. Current state: feature has 3 prior milestones covering (1) session continuity verification, (2) reset-context conflict bug fix, and (3) full abandon-sessions implementation. Two active sessions exist at checkpoint time: session-2026-04-15-start and test-milestone-session. This milestone is intentionally written to serve as a pre-restart state snapshot \u2014 after restarting the MCP server, feature_context should recover this milestone from persistent JSON storage and the session history should reflect that both active sessions were interrupted. No code changes in this session \u2014 pure lifecycle/state test."
+    },
+    {
+      "timestamp": "2026-04-15T18:02:53.586216+00:00",
+      "session_id": "3d64e581-6f5a-4b97-8880-8bd6b7b14eb6",
+      "text": "Context reset milestone (2026-04-15, session 3d64e581). No code changes in this session \u2014 pure lifecycle/state testing for MCP server restart recovery.\n\nSession activity:\n- Called feature_context at session start; confirmed 4 prior milestones and multiple sessions (session-2026-04-15-start and test-milestone-session both still showing active from previous sessions).\n- Added pre-restart checkpoint milestone via test-milestone-session to verify persistent JSON survives MCP server restart.\n- User asked about a confidence value display in the myvillage-apps portfolio (showing in cents instead of as a decimal score) \u2014 this is a pending follow-up in the myvillage-apps project, unrelated to this feature.\n- This session resumed with force=True due to stale session-2026-04-15-start lock still being active.\n\nNo pending follow-ups for this feature. Feature remains active for further lifecycle testing."
+    }
+  ],
+  "started_at": "2026-04-13T22:28:22.864043+00:00",
+  "completed_at": null,
+  "total_cost_usd": 0.0,
+  "total_input_tokens": 0,
+  "total_output_tokens": 0,
+  "prompt_count": 0
+}
