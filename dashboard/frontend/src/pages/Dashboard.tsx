@@ -56,7 +56,7 @@ export default function Dashboard() {
             {projectList.map((p, i) => (
               <Link
                 key={p.project_id}
-                to={`/projects/${p.project_id}`}
+                to={`/projects/${encodeURIComponent(p.name)}`}
                 className="flex items-center gap-4 py-2 border-b border-lcars-border/50 last:border-0 hover:bg-lcars-border/20 px-2 -mx-2 transition-colors group"
               >
                 <span className="text-lcars-muted font-mono text-xs w-6 shrink-0">
