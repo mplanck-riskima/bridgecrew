@@ -65,7 +65,7 @@ export default function Projects() {
           {projects.data?.map((project) => (
             <Link
               key={project.project_id}
-              to={`/projects/${project.project_id}`}
+              to={`/projects/${encodeURIComponent(project.name)}`}
               className="grid grid-cols-[1fr_auto] md:grid-cols-[1fr_auto_auto_auto_auto] gap-2 md:gap-4 items-center px-4 py-3 border-b border-lcars-border/50 last:border-0 hover:bg-lcars-border/20 transition-colors group"
             >
               <span className="text-lcars-cyan group-hover:text-lcars-amber font-medium transition-colors truncate">

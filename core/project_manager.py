@@ -137,6 +137,12 @@ class ProjectManager:
                     log.warning("Failed to link dashboard project for %s: %s", name, exc)
             save_project_state(project_dir, state)
 
+            # Sync features from local feature-mcp JSON store → dashboard
+            if state.get("bridgecrew_project_id"):
+                feature_results = self._sync_dashboard_features(name, state["bridgecrew_project_id"], project_dir)
+                if feature_results:
+                    results[name] = results.get(name, "exists") + f" ({feature_results})"
+
         # Check for removed projects
         for name in list(self._projects.keys()):
             if name not in discovered:
@@ -149,6 +155,100 @@ class ProjectManager:
 
         save_config(self._config)
         return results
+
+    def _sync_dashboard_features(self, project_name: str, project_id: str, project_dir: Path) -> str:
+        """
+        Read feature JSON files from disk and ensure each is represented in the dashboard.
+        Creates missing features and updates status for completed ones.
+        Returns a short summary string (e.g. "2 created, 1 updated").
+        """
+        import json as _json
+        from core.bridgecrew_client import (
+            get_features_for_project as _get_features,
+            report_feature_started as _start,
+            report_feature_completed as _complete,
+        )
+
+        features_dir = project_dir / ".claude" / "features"
+        if not features_dir.exists():
+            return ""
+
+        local_features: list[dict] = []
+        for p in sorted(features_dir.glob("*.json")):
+            try:
+                data = _json.loads(p.read_text(encoding="utf-8"))
+                if data:
+                    local_features.append(data)
+            except Exception:
+                continue
+
+        if not local_features:
+            return ""
+
+        try:
+            dashboard_features = _get_features(project_id)
+        except Exception as exc:
+            log.warning("_sync_dashboard_features: failed to fetch dashboard features for %s: %s", project_name, exc)
+            return ""
+
+        # Index dashboard features by name (lowered) for quick lookup
+        dash_by_name: dict[str, dict] = {f.get("name", "").lower(): f for f in dashboard_features}
+
+        created = updated = 0
+        for feat in local_features:
+            feat_name: str = feat.get("name", "")
+            feat_status: str = feat.get("status", "active")
+            if not feat_name:
+                continue
+
+            dash_feat = dash_by_name.get(feat_name.lower())
+
+            if dash_feat is None:
+                # Feature not in dashboard — create it
+                session_id = ""
+                for sess in feat.get("sessions", []):
+                    if sess.get("session_id"):
+                        session_id = sess["session_id"]
+                        break
+                composite_id = f"{project_name}:{feat_name}"
+                new_id = _start(
+                    project_id=project_id,
+                    feature_name=feat_name,
+                    session_id=session_id,
+                    feature_id=composite_id,
+                )
+                if new_id and feat_status == "completed":
+                    _complete(
+                        feature_id=new_id,
+                        summary=feat.get("summary", ""),
+                        total_cost_usd=feat.get("total_cost_usd", 0.0),
+                        total_input_tokens=feat.get("total_input_tokens", 0),
+                        total_output_tokens=feat.get("total_output_tokens", 0),
+                    )
+                    updated += 1
+                elif new_id:
+                    created += 1
+                log.info("_sync_dashboard_features: created feature %s/%s", project_name, feat_name)
+            elif feat_status == "completed" and dash_feat.get("status") != "completed":
+                # Feature exists but dashboard doesn't know it completed yet
+                dash_id = dash_feat.get("feature_id") or dash_feat.get("_id") or dash_feat.get("id", "")
+                if dash_id:
+                    _complete(
+                        feature_id=dash_id,
+                        summary=feat.get("summary", ""),
+                        total_cost_usd=feat.get("total_cost_usd", 0.0),
+                        total_input_tokens=feat.get("total_input_tokens", 0),
+                        total_output_tokens=feat.get("total_output_tokens", 0),
+                    )
+                    updated += 1
+                    log.info("_sync_dashboard_features: marked completed %s/%s", project_name, feat_name)
+
+        parts = []
+        if created:
+            parts.append(f"{created} feature{'s' if created != 1 else ''} created")
+        if updated:
+            parts.append(f"{updated} feature{'s' if updated != 1 else ''} updated")
+        return ", ".join(parts)
 
     async def _create_thread(
         self, channel: discord.TextChannel, name: str

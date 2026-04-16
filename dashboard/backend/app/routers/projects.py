@@ -69,23 +69,35 @@ def create_project(body: ProjectCreate) -> dict:
     return doc
 
 
+def _resolve_project(project_id_or_name: str) -> dict | None:
+    """Look up a project by project_id first, then by name."""
+    col = projects_col()
+    doc = col.find_one({"project_id": project_id_or_name}, {"_id": 0})
+    if doc is None:
+        doc = col.find_one({"name": project_id_or_name}, {"_id": 0})
+    return doc
+
+
 @router.get("/projects/{project_id}")
 def get_project(project_id: str) -> dict:
     """Return a project with its features and cost summary."""
-    doc = projects_col().find_one({"project_id": project_id}, {"_id": 0})
+    doc = _resolve_project(project_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Use the canonical project_id from the resolved document
+    resolved_id = doc["project_id"]
 
     # Attach features
     doc["features"] = list(
         features_col()
-        .find({"project_id": project_id}, {"_id": 0})
+        .find({"project_id": resolved_id}, {"_id": 0})
         .sort("created_at", DESCENDING)
     )
 
     # Attach cost summary
     cost_pipeline = [
-        {"$match": {"project_id": project_id}},
+        {"$match": {"project_id": resolved_id}},
         {"$group": {"_id": None, "total": {"$sum": "$cost_usd"}}},
     ]
     cost_result = list(cost_log_col().aggregate(cost_pipeline))

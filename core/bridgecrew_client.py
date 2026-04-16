@@ -182,6 +182,25 @@ def get_projects() -> list[dict]:
     return []
 
 
+def get_features_for_project(project_id: str) -> list[dict]:
+    """Fetch all dashboard features for a given project_id."""
+    if not _enabled() or not project_id:
+        return []
+    try:
+        resp = httpx.get(
+            f"{_API_URL}/api/features",
+            headers=_headers(),
+            params={"project_id": project_id},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        log.warning("get_features_for_project: HTTP %s", resp.status_code)
+    except Exception as exc:
+        log.warning("get_features_for_project failed: %s", exc)
+    return []
+
+
 def create_project(name: str, description: str = "") -> str | None:
     """Create a project in the dashboard. Returns project_id or None."""
     if not _enabled():

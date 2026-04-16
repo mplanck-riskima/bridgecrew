@@ -13,9 +13,12 @@ export default function Layout() {
     <div className="flex flex-col md:flex-row h-screen bg-lcars-bg font-lcars overflow-hidden">
 
       {/* ── Mobile top bar (visible below md) ── */}
-      <div className="md:hidden h-10 bg-lcars-orange flex items-center px-4 shrink-0">
+      <div className="md:hidden h-10 bg-lcars-orange flex items-center justify-between px-4 shrink-0">
         <span className="text-black font-bold text-sm tracking-[0.2em] uppercase">
           BridgeCrew
+        </span>
+        <span className="text-black font-mono text-xs opacity-60 tracking-widest">
+          {__COMMIT_HASH__}
         </span>
       </div>
 

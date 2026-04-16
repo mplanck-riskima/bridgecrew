@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import StatusBadge from "@/components/StatusBadge";
 import { api } from "@/lib/api";
 import type { ActivityEntry, Feature, FeatureCostBreakdown, Project, PromptTemplate } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
-type Tab = "features" | "activity" | "costs";
+type Tab = "features" | "activity";
 
 function LcarsPanel({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -20,7 +20,6 @@ function LcarsPanel({ label, children }: { label: string; children: React.ReactN
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>("features");
   const [project, setProject] = useState<Project | null>(null);
   const [prompts, setPrompts] = useState<PromptTemplate[]>([]);
@@ -28,7 +27,6 @@ export default function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [savingPrompt, setSavingPrompt] = useState(false);
   const [costBreakdowns, setCostBreakdowns] = useState<Record<string, FeatureCostBreakdown>>({});
   const [expandedMarkdown, setExpandedMarkdown] = useState<string | null>(null);
@@ -42,13 +40,14 @@ export default function ProjectDetail() {
     try {
       setLoading(true);
       setError(null);
-      const [p, ps, acts] = await Promise.all([
+      const [p, ps] = await Promise.all([
         api.getProject(id),
         api.getPrompts(),
-        api.getProjectActivity(id),
       ]);
       setProject(p);
       setPrompts(ps);
+      // Use the resolved project_id (ULID) so activity lookup hits the right records
+      const acts = await api.getProjectActivity(p.project_id);
       setActivity(acts);
     } catch (e) {
       setError(String(e));
@@ -59,17 +58,17 @@ export default function ProjectDetail() {
 
   // Poll activity every 30 s when that tab is active
   useEffect(() => {
-    if (tab !== "activity" || !id) return;
+    if (tab !== "activity" || !project?.project_id) return;
     const interval = setInterval(async () => {
       try {
-        const acts = await api.getProjectActivity(id);
+        const acts = await api.getProjectActivity(project.project_id);
         setActivity(acts);
       } catch {
         // ignore polling errors
       }
     }, 30_000);
     return () => clearInterval(interval);
-  }, [tab, id]);
+  }, [tab, project?.project_id]);
 
   useEffect(() => {
     if (tab !== "features" || !project?.features?.length) return;
@@ -83,10 +82,10 @@ export default function ProjectDetail() {
   }, [tab, id]);
 
   async function assignPrompt(promptTemplateId: string) {
-    if (!id || !project) return;
+    if (!project) return;
     setSavingPrompt(true);
     try {
-      const updated = await api.updateProject(id, { prompt_template_id: promptTemplateId || null });
+      const updated = await api.updateProject(project.project_id, { prompt_template_id: promptTemplateId || null });
       setProject(updated);
     } catch (e) {
       alert(String(e));
@@ -105,17 +104,7 @@ export default function ProjectDetail() {
     }
   }
 
-  async function handleDeleteProject() {
-    if (!id) return;
-    try {
-      await api.deleteProject(id);
-      navigate("/projects");
-    } catch (e) {
-      alert(String(e));
-    }
-  }
-
-  if (loading) return <div className="text-lcars-muted font-mono text-sm animate-pulse p-4">── RETRIEVING DATA ──</div>;
+if (loading) return <div className="text-lcars-muted font-mono text-sm animate-pulse p-4">── RETRIEVING DATA ──</div>;
   if (error) return <div className="text-lcars-red font-mono text-sm p-4">{error}</div>;
   if (!project) return <div className="text-lcars-red font-mono text-sm p-4">PROJECT NOT FOUND</div>;
 
@@ -125,7 +114,6 @@ export default function ProjectDetail() {
   const tabs: { key: Tab; label: string }[] = [
     { key: "features", label: "FEATURES" },
     { key: "activity", label: "ACTIVITY" },
-    { key: "costs", label: "COSTS" },
   ];
 
   return (
@@ -139,32 +127,6 @@ export default function ProjectDetail() {
           <div className="flex items-center gap-3">
             <div className="w-1 h-6 bg-lcars-orange" />
             <h1 className="text-lcars-orange font-mono text-xs tracking-[0.3em] uppercase">{p.name}</h1>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {confirmDeleteProject ? (
-              <>
-                <span className="text-xs font-mono text-lcars-muted tracking-widest">CONFIRM DELETION?</span>
-                <button
-                  onClick={handleDeleteProject}
-                  className="text-xs font-mono bg-lcars-red text-white px-2 py-1 hover:opacity-80"
-                >
-                  CONFIRM
-                </button>
-                <button
-                  onClick={() => setConfirmDeleteProject(false)}
-                  className="text-xs font-mono text-lcars-muted hover:text-lcars-text"
-                >
-                  ABORT
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setConfirmDeleteProject(true)}
-                className="text-xs text-lcars-border hover:text-lcars-red px-1 transition-colors"
-              >
-                ✕ DELETE
-              </button>
-            )}
           </div>
         </div>
         <div className="flex items-center gap-3 mt-2">
@@ -364,14 +326,6 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {tab === "costs" && (
-        <LcarsPanel label="Resource Expenditure">
-          <div className="text-4xl font-mono text-lcars-amber">
-            {formatCurrency(p.total_cost_usd ?? 0)}
-          </div>
-          <div className="text-lcars-muted font-mono text-xs mt-1">total project cost</div>
-        </LcarsPanel>
-      )}
     </div>
   );
 }
