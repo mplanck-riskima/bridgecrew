@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import MarkdownContent from "@/components/MarkdownContent";
 import StatusBadge from "@/components/StatusBadge";
 import { api } from "@/lib/api";
 import type { ActivityEntry, Feature, FeatureCostBreakdown, Project, PromptTemplate } from "@/lib/types";
@@ -214,9 +215,7 @@ if (loading) return <div className="text-lcars-muted font-mono text-sm animate-p
                       <p className="text-sm text-lcars-muted italic">{f.summary}</p>
                     )}
                     {f.markdown_content && (
-                      <pre className="text-xs font-mono text-lcars-muted whitespace-pre-wrap break-words leading-relaxed">
-                        {f.markdown_content}
-                      </pre>
+                      <MarkdownContent content={f.markdown_content} />
                     )}
                     {!f.summary && !f.markdown_content && (
                       <p className="text-xs font-mono text-lcars-muted opacity-50">No summary recorded.</p>
