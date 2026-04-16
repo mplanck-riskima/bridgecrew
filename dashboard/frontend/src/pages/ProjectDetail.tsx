@@ -7,17 +7,6 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 
 type Tab = "features" | "activity";
 
-function LcarsPanel({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-lcars-panel border border-lcars-border">
-      <div className="px-3 py-1 border-b border-lcars-border">
-        <span className="text-lcars-orange text-xs font-mono tracking-[0.2em] uppercase">{label}</span>
-      </div>
-      <div className="p-4">{children}</div>
-    </div>
-  );
-}
-
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const [tab, setTab] = useState<Tab>("features");
@@ -26,7 +15,6 @@ export default function ProjectDetail() {
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [savingPrompt, setSavingPrompt] = useState(false);
   const [costBreakdowns, setCostBreakdowns] = useState<Record<string, FeatureCostBreakdown>>({});
   const [expandedMarkdown, setExpandedMarkdown] = useState<string | null>(null);
@@ -91,16 +79,6 @@ export default function ProjectDetail() {
       alert(String(e));
     } finally {
       setSavingPrompt(false);
-    }
-  }
-
-  async function handleDeleteFeature(featureId: string) {
-    try {
-      await api.deleteFeature(featureId);
-      setConfirmDelete(null);
-      await load();
-    } catch (e) {
-      alert(String(e));
     }
   }
 
@@ -180,92 +158,74 @@ if (loading) return <div className="text-lcars-muted font-mono text-sm animate-p
               NO FEATURES ON RECORD — USE /START-FEATURE IN THE DISCORD PROJECT THREAD
             </div>
           )}
-          {features.map((f) => (
-            <div key={f.feature_id} className="bg-lcars-panel border border-lcars-border p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-lcars-cyan font-medium">{f.name}</span>
-                    <StatusBadge status={f.status} />
-                    {f.git_branch && (
-                      <span className="text-xs font-mono bg-lcars-border/40 text-lcars-muted px-1.5 py-0.5">
-                        {f.git_branch}
-                      </span>
+          {features.map((f) => {
+            const hasDetail = !!(f.summary || f.markdown_content);
+            const isExpanded = expandedMarkdown === f.feature_id;
+            return (
+              <div
+                key={f.feature_id}
+                className={`bg-lcars-panel border border-lcars-border p-4 ${hasDetail ? "cursor-pointer hover:border-lcars-orange/60 transition-colors" : ""}`}
+                onClick={hasDetail ? () => setExpandedMarkdown(isExpanded ? null : f.feature_id) : undefined}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-lcars-cyan font-medium">{f.name}</span>
+                      <StatusBadge status={f.status} />
+                      {f.git_branch && (
+                        <span className="text-xs font-mono bg-lcars-border/40 text-lcars-muted px-1.5 py-0.5">
+                          {f.git_branch}
+                        </span>
+                      )}
+                    </div>
+                    {f.description && (
+                      <p className="text-sm text-lcars-muted mt-1">{f.description}</p>
+                    )}
+                    <div className="flex items-center gap-3 text-xs font-mono text-lcars-muted mt-2">
+                      {(() => {
+                        const breakdown = costBreakdowns[f.feature_id];
+                        if (breakdown && Object.keys(breakdown.by_model).length > 0) {
+                          return (
+                            <div className="flex flex-col gap-0.5">
+                              {Object.entries(breakdown.by_model).map(([model, data]) => (
+                                <span key={model} className="text-lcars-green">
+                                  {model.replace("claude-", "")} {formatCurrency(data.cost_usd)}
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        }
+                        if (f.total_cost_usd > 0) {
+                          return <span className="text-lcars-green">{formatCurrency(f.total_cost_usd)}</span>;
+                        }
+                        return null;
+                      })()}
+                      {f.subdir && <span>in {f.subdir}/</span>}
+                      <span>{formatDate(f.created_at)}</span>
+                      {f.completed_at && <span>→ {formatDate(f.completed_at)}</span>}
+                    </div>
+                  </div>
+                  {hasDetail && (
+                    <span className="text-lcars-muted text-xs font-mono shrink-0 mt-0.5">
+                      {isExpanded ? "▲" : "▼"}
+                    </span>
+                  )}
+                </div>
+                {isExpanded && (
+                  <div className="mt-3 border-t border-lcars-border pt-3 space-y-2">
+                    {f.summary && (
+                      <p className="text-sm text-lcars-muted italic">{f.summary}</p>
+                    )}
+                    {f.markdown_content && (
+                      <pre className="text-xs font-mono text-lcars-muted whitespace-pre-wrap break-words leading-relaxed">
+                        {f.markdown_content}
+                      </pre>
                     )}
                   </div>
-                  {f.description && (
-                    <p className="text-sm text-lcars-muted mt-1">{f.description}</p>
-                  )}
-                  {f.summary && (
-                    <p className="text-sm text-lcars-muted mt-1 italic">{f.summary}</p>
-                  )}
-                  <div className="flex items-center gap-3 text-xs font-mono text-lcars-muted mt-2">
-                    {(() => {
-                      const breakdown = costBreakdowns[f.feature_id];
-                      if (breakdown && Object.keys(breakdown.by_model).length > 0) {
-                        return (
-                          <div className="flex flex-col gap-0.5">
-                            {Object.entries(breakdown.by_model).map(([model, data]) => (
-                              <span key={model} className="text-lcars-green">
-                                {model.replace("claude-", "")} {formatCurrency(data.cost_usd)}
-                              </span>
-                            ))}
-                          </div>
-                        );
-                      }
-                      if (f.total_cost_usd > 0) {
-                        return <span className="text-lcars-green">{formatCurrency(f.total_cost_usd)}</span>;
-                      }
-                      return null;
-                    })()}
-                    {f.subdir && <span>in {f.subdir}/</span>}
-                    <span>{formatDate(f.created_at)}</span>
-                    {f.completed_at && <span>→ {formatDate(f.completed_at)}</span>}
-                  </div>
-                </div>
-                <div className="shrink-0">
-                  {confirmDelete === f.feature_id ? (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleDeleteFeature(f.feature_id)}
-                        className="text-xs font-mono bg-lcars-red text-white px-2 py-1 hover:opacity-80"
-                      >
-                        CONFIRM
-                      </button>
-                      <button
-                        onClick={() => setConfirmDelete(null)}
-                        className="text-xs font-mono text-lcars-muted hover:text-lcars-text"
-                      >
-                        ABORT
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmDelete(f.feature_id)}
-                      className="text-xs text-lcars-border hover:text-lcars-red px-1 transition-colors"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
+                )}
               </div>
-              {f.status === "completed" && f.markdown_content && (
-                <div className="mt-3 border-t border-lcars-border pt-3">
-                  <button
-                    onClick={() => setExpandedMarkdown(expandedMarkdown === f.feature_id ? null : f.feature_id)}
-                    className="text-xs font-mono text-lcars-cyan hover:text-lcars-amber tracking-widest transition-colors"
-                  >
-                    {expandedMarkdown === f.feature_id ? "▲ HIDE SUMMARY" : "▼ SHOW SUMMARY"}
-                  </button>
-                  {expandedMarkdown === f.feature_id && (
-                    <pre className="mt-2 text-xs font-mono text-lcars-muted whitespace-pre-wrap break-words leading-relaxed">
-                      {f.markdown_content}
-                    </pre>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

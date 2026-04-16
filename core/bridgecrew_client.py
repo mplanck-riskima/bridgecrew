@@ -194,7 +194,9 @@ def get_features_for_project(project_id: str) -> list[dict]:
             timeout=5,
         )
         if resp.status_code == 200:
-            return resp.json()
+            data = resp.json()
+            # Endpoint returns a paginated envelope {"items": [...], "total": ...}
+            return data.get("items", data) if isinstance(data, dict) else data
         log.warning("get_features_for_project: HTTP %s", resp.status_code)
     except Exception as exc:
         log.warning("get_features_for_project failed: %s", exc)
