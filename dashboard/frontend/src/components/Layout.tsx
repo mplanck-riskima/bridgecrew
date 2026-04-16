@@ -87,8 +87,8 @@ export default function Layout() {
         <div className="flex shrink-0" style={{ height: "40px" }}>
           <div className="w-12 h-full bg-lcars-orange rounded-tr-[2rem] shrink-0" />
           <div className="flex-1 flex items-center pl-3">
-            <span className="text-lcars-muted text-xs font-mono tracking-widest">
-              LCARS v2.0
+            <span className="text-lcars-muted text-xs font-mono tracking-widest opacity-60">
+              {__COMMIT_HASH__}
             </span>
           </div>
         </div>

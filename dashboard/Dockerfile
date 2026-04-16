@@ -4,6 +4,9 @@ WORKDIR /app
 COPY dashboard/frontend/package*.json ./
 RUN npm ci
 COPY dashboard/frontend/ ./
+# Railway injects RAILWAY_GIT_COMMIT_SHA at build time; node:alpine has no git.
+ARG RAILWAY_GIT_COMMIT_SHA
+ENV RAILWAY_GIT_COMMIT_SHA=$RAILWAY_GIT_COMMIT_SHA
 RUN npm run build
 
 # Stage 2: Backend + serve bundled frontend
