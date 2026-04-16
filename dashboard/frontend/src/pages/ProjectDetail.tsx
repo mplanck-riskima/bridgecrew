@@ -159,13 +159,12 @@ if (loading) return <div className="text-lcars-muted font-mono text-sm animate-p
             </div>
           )}
           {features.map((f) => {
-            const hasDetail = !!(f.summary || f.markdown_content);
             const isExpanded = expandedMarkdown === f.feature_id;
             return (
               <div
                 key={f.feature_id}
-                className={`bg-lcars-panel border border-lcars-border p-4 ${hasDetail ? "cursor-pointer hover:border-lcars-orange/60 transition-colors" : ""}`}
-                onClick={hasDetail ? () => setExpandedMarkdown(isExpanded ? null : f.feature_id) : undefined}
+                className="bg-lcars-panel border border-lcars-border p-4 cursor-pointer hover:border-lcars-orange/60 transition-colors"
+                onClick={() => setExpandedMarkdown(isExpanded ? null : f.feature_id)}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
@@ -205,11 +204,9 @@ if (loading) return <div className="text-lcars-muted font-mono text-sm animate-p
                       {f.completed_at && <span>→ {formatDate(f.completed_at)}</span>}
                     </div>
                   </div>
-                  {hasDetail && (
-                    <span className="text-lcars-muted text-xs font-mono shrink-0 mt-0.5">
-                      {isExpanded ? "▲" : "▼"}
-                    </span>
-                  )}
+                  <span className="text-lcars-muted text-xs font-mono shrink-0 mt-0.5">
+                    {isExpanded ? "▲" : "▼"}
+                  </span>
                 </div>
                 {isExpanded && (
                   <div className="mt-3 border-t border-lcars-border pt-3 space-y-2">
@@ -220,6 +217,9 @@ if (loading) return <div className="text-lcars-muted font-mono text-sm animate-p
                       <pre className="text-xs font-mono text-lcars-muted whitespace-pre-wrap break-words leading-relaxed">
                         {f.markdown_content}
                       </pre>
+                    )}
+                    {!f.summary && !f.markdown_content && (
+                      <p className="text-xs font-mono text-lcars-muted opacity-50">No summary recorded.</p>
                     )}
                   </div>
                 )}
