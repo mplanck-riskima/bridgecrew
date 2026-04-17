@@ -1,0 +1,45 @@
+{
+  "name": "features-on-dashboard",
+  "status": "active",
+  "session_id": "3fc38f9c-a502-425b-9657-4e86b87f348c",
+  "description": "",
+  "sessions": [
+    {
+      "session_id": "b4afad01-4933-46e8-bb98-d3a143ac18b6",
+      "session_start": "2026-04-16T06:43:31.016780+00:00",
+      "source": "rest",
+      "status": "completed"
+    },
+    {
+      "session_id": "b4afad01-4933-46e8-bb98-d3a143ac18b6",
+      "session_start": "2026-04-16T06:54:37.445649+00:00",
+      "source": "cli",
+      "status": "completed"
+    },
+    {
+      "session_id": "b4afad01-4933-46e8-bb98-d3a143ac18b6",
+      "session_start": "2026-04-16T06:56:05.764642+00:00",
+      "source": "rest",
+      "status": "completed"
+    },
+    {
+      "session_id": "b4afad01-4933-46e8-bb98-d3a143ac18b6",
+      "session_start": "2026-04-16T07:18:50.043652+00:00",
+      "source": "cli",
+      "status": "completed"
+    },
+    {
+      "session_id": "3fc38f9c-a502-425b-9657-4e86b87f348c",
+      "session_start": "2026-04-17T00:15:11.807994+00:00",
+      "source": "rest",
+      "status": "active"
+    }
+  ],
+  "milestones": [],
+  "started_at": "2026-04-16T06:43:31.016780+00:00",
+  "completed_at": null,
+  "total_cost_usd": 7.7493038,
+  "total_input_tokens": 1401741,
+  "total_output_tokens": 45324,
+  "prompt_count": 15
+}

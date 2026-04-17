@@ -13,7 +13,7 @@ const COLORS: Record<string, string> = {
   failed:            "bg-lcars-red/20 border border-lcars-red text-lcars-red",
   pending:           "bg-lcars-panel border border-lcars-muted text-lcars-muted",
   assigned:          "bg-lcars-blue/20 border border-lcars-blue text-lcars-blue",
-  completed:         "bg-lcars-green/20 border border-lcars-green text-lcars-green",
+  completed:         "bg-lcars-amber/20 border border-lcars-amber text-lcars-amber",
   blocked:           "bg-lcars-red/20 border border-lcars-red text-lcars-red",
   active:            "bg-lcars-green/20 border border-lcars-green text-lcars-green",
   paused:            "bg-lcars-amber/20 border border-lcars-amber text-lcars-amber",

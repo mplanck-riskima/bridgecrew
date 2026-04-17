@@ -1,7 +1,7 @@
 {
   "name": "test-feature-closure",
-  "status": "active",
-  "session_id": "session-start-feature-stuff-on-pc",
+  "status": "completed",
+  "session_id": "b4afad01-4933-46e8-bb98-d3a143ac18b6",
   "description": "",
   "sessions": [
     {
@@ -68,6 +68,12 @@
       "session_start": "2026-04-15T19:44:52.031415+00:00",
       "source": "cli",
       "status": "active"
+    },
+    {
+      "session_id": "b4afad01-4933-46e8-bb98-d3a143ac18b6",
+      "session_start": "2026-04-16T01:17:04.241573+00:00",
+      "source": "cli",
+      "status": "completed"
     }
   ],
   "milestones": [
@@ -98,7 +104,7 @@
     }
   ],
   "started_at": "2026-04-13T22:28:22.864043+00:00",
-  "completed_at": null,
+  "completed_at": "2026-04-16T01:17:15.071340+00:00",
   "total_cost_usd": 0.0,
   "total_input_tokens": 0,
   "total_output_tokens": 0,
