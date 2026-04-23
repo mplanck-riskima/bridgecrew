@@ -36,7 +36,7 @@ class StopView(discord.ui.View):
         super().__init__(timeout=None)
         self._on_cancel = on_cancel
 
-    @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger, emoji="\u23f9")
+    @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger, emoji="⏹")
     async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if self._on_cancel():
             button.label = "Stopping..."
@@ -59,6 +59,7 @@ class DiscordStreamer:
         self._finalized = False
         self._on_cancel = on_cancel
         self._stop_view: StopView | None = None
+        self._prompt_header: str = ""
 
     async def start(self, prompt_preview: str = "", persona_name: str = "", session_id: str = "", feature_name: str = "") -> None:
         display_name = persona_name or "Computer"
@@ -72,6 +73,7 @@ class DiscordStreamer:
         if prompt_preview:
             truncated = (prompt_preview[:80] + "...") if len(prompt_preview) > 80 else prompt_preview
             label = f"*{display_name} is thinking about:* {truncated}{debug_suffix}"
+            self._prompt_header = f"> {truncated}\n\n"
         if self._on_cancel:
             self._stop_view = StopView(self._on_cancel)
             self.current_message = await discord_retry(self.channel.send(label, view=self._stop_view))
@@ -112,7 +114,7 @@ class DiscordStreamer:
             # Final edit — remove the stop button
             if self.current_message and self.current_text:
                 try:
-                    await self.current_message.edit(content=self.current_text, view=None)
+                    await self.current_message.edit(content=self._current_header() + self.current_text, view=None)
                 except discord.HTTPException:
                     pass
         self._cleanup_view()
@@ -125,8 +127,9 @@ class DiscordStreamer:
         suffix = "\n\n*Cancelled.*"
         if self.current_message:
             try:
+                header = self._current_header()
                 await self.current_message.edit(
-                    content=(self.current_text + suffix) if self.current_text else "*Cancelled.*",
+                    content=(header + self.current_text + suffix) if self.current_text else (header + "*Cancelled.*"),
                     view=None,
                 )
             except discord.HTTPException:
@@ -161,6 +164,10 @@ class DiscordStreamer:
             self._stop_view.stop()
             self._stop_view = None
 
+    def _current_header(self) -> str:
+        """Return the prompt header if we're still on the first message."""
+        return self._prompt_header if self._prompt_header and len(self.all_messages) == 1 else ""
+
     async def _flush(self, force: bool = False) -> None:
         if not self._buffer_dirty and not force:
             return
@@ -170,12 +177,18 @@ class DiscordStreamer:
         self._buffer_dirty = False
 
         # Keep chunking until all pending text is placed
-        while len(self.current_text) + len(pending) > CHAR_LIMIT:
-            remaining_space = CHAR_LIMIT - len(self.current_text)
+        while True:
+            header = self._current_header()
+            effective_limit = CHAR_LIMIT - len(header)
+            if len(self.current_text) + len(pending) <= effective_limit:
+                break
+
+            remaining_space = effective_limit - len(self.current_text)
 
             if remaining_space > 0:
                 # Try to split at a newline boundary
                 split_at = pending[:remaining_space].rfind("\n")
+                split_was_mid_line = split_at == -1
                 if split_at == -1:
                     split_at = remaining_space
 
@@ -183,6 +196,7 @@ class DiscordStreamer:
                 pending = pending[split_at:]
             else:
                 first_part = ""
+                split_was_mid_line = True
 
             # Handle code block continuity
             if first_part:
@@ -193,14 +207,21 @@ class DiscordStreamer:
             # Edit the current message with what fits, removing the stop button
             if self.current_message:
                 try:
-                    await self.current_message.edit(content=self.current_text or "\u200b", view=None)
+                    await self.current_message.edit(content=header + (self.current_text or "​"), view=None)
                 except discord.HTTPException as e:
                     log.warning("Failed to edit message: %s", e)
 
             # Start a new message for the overflow, with the stop button
-            self.current_text = reopen_prefix
+            # If split mid-sentence (no code block), prepend the partial sentence to pending
+            # so it merges naturally with the rest of the sentence in the new message.
+            if split_was_mid_line and not reopen_prefix:
+                fragment = self._find_partial_sentence(closed_text)
+                if fragment:
+                    pending = fragment + pending
+            continuation = self._build_continuation_prefix(split_was_mid_line and bool(reopen_prefix))
+            self.current_text = continuation + reopen_prefix
             self.current_message = await self.channel.send(
-                "\u200b",
+                "​",
                 view=self._stop_view if self._stop_view else discord.utils.MISSING,
             )
             self.all_messages.append(self.current_message)
@@ -215,9 +236,28 @@ class DiscordStreamer:
         if not self.current_message:
             return
         try:
-            await self.current_message.edit(content=text or "\u200b")
+            await self.current_message.edit(content=self._current_header() + (text or "​"))
         except discord.HTTPException as e:
             log.warning("Failed to edit message: %s", e)
+
+    def _build_continuation_prefix(self, is_code_block: bool = False) -> str:
+        """Build the header for a continuation message."""
+        return "*^ continued from above*\n\n"
+
+    def _find_partial_sentence(self, text: str) -> str:
+        """Return the start of the incomplete sentence at the end of text."""
+        # Strip code blocks and inline code before searching
+        text_clean = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+        text_clean = re.sub(r"`[^`]+`", "", text_clean).strip()
+        if not text_clean:
+            return ""
+        # Find the last sentence boundary
+        matches = list(re.finditer(r"[.!?\n]\s*", text_clean))
+        if matches:
+            fragment = text_clean[matches[-1].end():].strip()
+        else:
+            fragment = text_clean.strip()
+        return fragment if len(fragment) >= 5 else ""
 
     def _handle_message_split(self, text: str) -> tuple[str, str]:
         """Close any open markdown spans at a message boundary.

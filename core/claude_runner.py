@@ -258,7 +258,7 @@ class ClaudeRunner:
             # Wait for the process to finish and collect stderr
             await proc.wait()
             stderr_chunks = await stderr_task
-            if proc.returncode != 0:
+            if proc.returncode != 0 and thread_id not in self._cancelled:
                 stderr_text = "".join(stderr_chunks).strip()[:500]
                 msg = f"Claude exited with code {proc.returncode}"
                 if stderr_text:

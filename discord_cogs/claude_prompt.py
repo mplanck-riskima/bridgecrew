@@ -532,7 +532,8 @@ class ClaudePromptCog(commands.Cog):
                           workspace_context="", bridgecrew_project_id="", model=None,
                           guild=None, project_name=None,
                           show_prompt_preview: bool = False,
-                          is_scheduled: bool = False) -> tuple[str | None, str | None, str]:
+                          is_scheduled: bool = False,
+                          initial_text: str = "") -> tuple[str | None, str | None, str]:
         """Run Claude and stream to Discord. Returns (last_session_id, pending_question, response_text).
 
         project_dir: project root — used for state, token tracking, file security
@@ -545,6 +546,8 @@ class ClaudePromptCog(commands.Cog):
         cancel_fn = lambda: runner.cancel(thread_id)
         streamer = DiscordStreamer(channel, on_cancel=cancel_fn)
         await streamer.start(prompt_preview=prompt if show_prompt_preview else "", persona_name=persona_name, session_id=session_id or "", feature_name=feature.name if feature else "")
+        if initial_text:
+            await streamer.feed(initial_text)
 
         # Create a background task to periodically flush the buffer
         async def tick_loop(s=streamer):
@@ -1409,8 +1412,9 @@ class ClaudePromptCog(commands.Cog):
             model=preferred_model,
             guild=guild,
             project_name=project_name,
-            show_prompt_preview=item.was_queued,
+            show_prompt_preview=False,
             is_scheduled=is_scheduled,
+            initial_text=f"*Processing queued prompt:* `{(prompt[:120] + '...') if len(prompt) > 120 else prompt}`\n\n" if item.was_queued else "",
         )
 
         # Register the real CLI session UUID with the MCP server when needed.
