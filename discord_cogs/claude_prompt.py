@@ -259,15 +259,21 @@ class PreemptView(discord.ui.View):
 
 
 class QueueListView(discord.ui.View):
-    """Shows all queued items with per-item Remove buttons."""
+    """Shows all queued items with per-item Remove and Pre-empt buttons."""
 
-    def __init__(self, items: list[QueuedPrompt]):
+    def __init__(self, items: list[QueuedPrompt], cog: "ClaudePromptCog | None" = None, channel_id: int = 0):
         super().__init__(timeout=120)
         self.items = items
-        for i, item in enumerate(items[:25]):
-            self.add_item(self._make_button(i, item))
+        self.cog = cog
+        self.channel_id = channel_id
+        # With 2 buttons per item, Discord's 25-component cap means max 12 items
+        limit = 12 if cog is not None else 25
+        for i, item in enumerate(items[:limit]):
+            self.add_item(self._make_remove_button(i, item))
+            if cog is not None:
+                self.add_item(self._make_preempt_button(i, item))
 
-    def _make_button(self, index: int, item: QueuedPrompt):
+    def _make_remove_button(self, index: int, item: QueuedPrompt):
         button = discord.ui.Button(
             label=f"Remove #{index + 1}",
             style=discord.ButtonStyle.danger,
@@ -279,6 +285,25 @@ class QueueListView(discord.ui.View):
             _btn.disabled = True
             _btn.label = f"#{list(self.items).index(_item) + 1} Removed"
             await interaction.response.edit_message(content=self._render(), view=self)
+
+        button.callback = callback
+        return button
+
+    def _make_preempt_button(self, index: int, item: QueuedPrompt):
+        button = discord.ui.Button(
+            label=f"Pre-empt #{index + 1}",
+            style=discord.ButtonStyle.primary,
+            custom_id=f"preempt_{id(item)}",
+        )
+
+        async def callback(interaction: discord.Interaction, _item=item, _btn=button):
+            _btn.disabled = True
+            # Also disable the matching remove button
+            for child in self.children:
+                if getattr(child, "custom_id", "") == f"remove_{id(_item)}":
+                    child.disabled = True
+            await interaction.response.edit_message(view=self)
+            await self.cog._handle_preempt(self.channel_id, _item)
 
         button.callback = callback
         return button
@@ -1244,7 +1269,7 @@ class ClaudePromptCog(commands.Cog):
         if not items:
             await interaction.response.send_message("Nothing queued.", ephemeral=True)
             return
-        view = QueueListView(items)
+        view = QueueListView(items, cog=self, channel_id=thread_id)
         await interaction.response.send_message(view._render(), view=view)
 
     @staticmethod
