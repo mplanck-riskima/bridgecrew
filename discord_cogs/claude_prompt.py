@@ -237,7 +237,7 @@ class PreemptView(discord.ui.View):
     """Queue notification view with Pre-empt and Remove buttons."""
 
     def __init__(self, item: QueuedPrompt, cog: "ClaudePromptCog") -> None:
-        super().__init__(timeout=None)
+        super().__init__(timeout=3600)
         self.item = item
         self.cog = cog
 
@@ -577,6 +577,13 @@ class ClaudePromptCog(commands.Cog):
         else:
             log.warning("_handle_preempt: no current item tracked for channel %s — skip continue entry", channel_id)
 
+        # Disable the item's queue notification buttons if present (prevents double-fire from /list-queue + notification)
+        if item.queue_message:
+            try:
+                await item.queue_message.edit(view=None)
+            except discord.HTTPException:
+                pass
+
         # Cancel the running subprocess; worker loop will pick up the reordered queue naturally
         self.bot.claude_runner.cancel(channel_id)
 
@@ -589,13 +596,13 @@ class ClaudePromptCog(commands.Cog):
                 # Skip cancelled items
                 if item.cancelled:
                     continue
+                self._current_items[thread_id] = item
                 # Remove buttons from the queue notification once processing starts
                 if item.queue_message:
                     try:
                         await item.queue_message.edit(view=None)
                     except discord.HTTPException:
                         pass
-                self._current_items[thread_id] = item
                 try:
                     await self._process_prompt(item)
                 except Exception as e:
