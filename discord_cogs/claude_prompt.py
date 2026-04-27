@@ -251,7 +251,8 @@ class PreemptView(discord.ui.View):
     @discord.ui.button(label="Remove", style=discord.ButtonStyle.danger)
     async def remove(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         self.item.cancelled = True
-        button.disabled = True
+        for child in self.children:
+            child.disabled = True
         button.label = "Removed"
         original = interaction.message.content if interaction.message else ""
         await interaction.response.edit_message(content=f"~~{original}~~", view=self)
@@ -535,10 +536,9 @@ class ClaudePromptCog(commands.Cog):
         # Move the pre-empting item to front (no-op if already there)
         try:
             dq.remove(item)
+            dq.appendleft(item)
         except ValueError:
-            pass  # item may have already been dequeued if worker was very fast
-
-        dq.appendleft(item)
+            pass  # item already dequeued (worker started it); nothing to reorder
 
         # Insert the "continue..." entry right after item (index 1)
         if current is not None:
