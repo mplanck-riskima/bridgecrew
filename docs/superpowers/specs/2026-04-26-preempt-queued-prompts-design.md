@@ -43,9 +43,9 @@ Pre-empt sequence for thread with channel ID `cid`:
    a. Look up `current = _current_items.get(cid)`.
    b. Call `cancel(cid)` — cancels the `asyncio.Task` in `_workers[cid]` (same path as `/cancel` command).
    c. If `current` exists, construct a new `QueuedPrompt` with `prompt = f"continue the work relayed to prompt: {current.prompt}"` and `was_queued=True`.
-   d. `appendleft` that item onto `_queues[cid]._queue` (the underlying `collections.deque`, consistent with how `/list-queue` already peeks at it).
+   d. Insert that item at index 1 of `_queues[cid]._queue` (the underlying `collections.deque`): `queue._queue.insert(1, continue_item)`. This places it immediately after the pre-empting prompt (which is already at index 0 of the deque), so the order is: (pre-empting prompt) → ("continue..." item) → (remaining queue). Do NOT use `appendleft` — that would put "continue..." before the pre-empting prompt, defeating the purpose.
    e. Disable Pre-empt and Remove buttons, update notification message.
-3. Worker restart: cancellation triggers the existing worker-done path, which spawns a new worker. That worker processes: (incoming prompt) → ("continue..." item) → (remaining queue).
+3. Worker restart: cancellation triggers the existing worker-done path, which spawns a new worker. That worker processes: (pre-empting prompt) → ("continue..." item) → (remaining queue).
 
 ### Worker bookkeeping
 
@@ -61,7 +61,7 @@ In `_worker()`:
 | Pre-empt clicked twice | Buttons disabled on first click; second Discord interaction gets a stale-interaction error — no double-cancel |
 | `_current_items` missing (bot restarted mid-run) | Guard with `.get()`; cancel still fires, "continue..." prepend skipped, warning logged |
 | Worker cancellation timing | Existing cancel path handles mid-response teardown; pre-empt rides it unchanged |
-| Pre-empt on item 2+ from `/list-queue` | Selected item moves to front via `appendleft`; "continue..." for running task prepended before it; rest of queue unchanged |
+| Pre-empt on item N from `/list-queue` | Remove selected item from its position; `appendleft` it to make it index 0; `insert(1, continue_item)` places "continue..." at index 1; original items follow in order |
 
 ## Files Changed
 
