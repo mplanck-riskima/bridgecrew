@@ -233,6 +233,30 @@ class CancelQueuedView(discord.ui.View):
         await interaction.response.edit_message(content=f"~~{original}~~", view=self)
 
 
+class PreemptView(discord.ui.View):
+    """Queue notification view with Pre-empt and Remove buttons."""
+
+    def __init__(self, item: QueuedPrompt, cog: "ClaudePromptCog") -> None:
+        super().__init__(timeout=None)
+        self.item = item
+        self.cog = cog
+
+    @discord.ui.button(label="Pre-empt", style=discord.ButtonStyle.primary)
+    async def preempt(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+        await self.cog._handle_preempt(interaction.channel_id, self.item)
+
+    @discord.ui.button(label="Remove", style=discord.ButtonStyle.danger)
+    async def remove(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        self.item.cancelled = True
+        button.disabled = True
+        button.label = "Removed"
+        original = interaction.message.content if interaction.message else ""
+        await interaction.response.edit_message(content=f"~~{original}~~", view=self)
+
+
 class QueueListView(discord.ui.View):
     """Shows all queued items with per-item Remove buttons."""
 
@@ -493,6 +517,43 @@ class ClaudePromptCog(commands.Cog):
                 return None
             except Exception:
                 return None
+
+    async def _handle_preempt(self, channel_id: int, item: QueuedPrompt) -> None:
+        """Pre-empt the currently running task with `item`.
+
+        Moves `item` to the front of the queue and inserts a
+        'continue the work...' entry for the interrupted task at position 1.
+        Then cancels the running subprocess so the worker picks up `item` next.
+        """
+        queue = self._queues.get(channel_id)
+        if not queue:
+            return
+
+        current = self._current_items.get(channel_id)
+        dq = queue._queue  # collections.deque — same access pattern as /list-queue
+
+        # Move the pre-empting item to front (no-op if already there)
+        try:
+            dq.remove(item)
+        except ValueError:
+            pass  # item may have already been dequeued if worker was very fast
+
+        dq.appendleft(item)
+
+        # Insert the "continue..." entry right after item (index 1)
+        if current is not None:
+            continue_item = QueuedPrompt(
+                message=current.message,
+                prompt=f"continue the work relayed to prompt: {current.prompt}",
+                project=current.project,
+                was_queued=True,
+            )
+            dq.insert(1, continue_item)
+        else:
+            log.warning("_handle_preempt: no current item tracked for channel %s — skip continue entry", channel_id)
+
+        # Cancel the running subprocess; worker loop will pick up the reordered queue naturally
+        self.bot.claude_runner.cancel(channel_id)
 
     async def _worker(self, thread_id: int) -> None:
         """Process queued prompts for a thread, one at a time."""
