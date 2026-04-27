@@ -417,7 +417,7 @@ class ClaudePromptCog(commands.Cog):
                 position = queue.qsize()
                 await message.add_reaction("\U0001f4cb")
                 preview = prompt[:200] + ("…" if len(prompt) > 200 else "")
-                view = CancelQueuedView(queued)
+                view = PreemptView(queued, self)
                 label = self._system_run_labels.get(channel_id)
                 label_str = f" — {label}" if label else ""
                 queue_msg = await message.channel.send(f"*Queued (position {position}{label_str}):* `{preview}`", view=view)
@@ -450,7 +450,7 @@ class ClaudePromptCog(commands.Cog):
             position = queue.qsize()
             await message.add_reaction("\U0001f4cb")  # clipboard emoji = queued
             preview = prompt[:200] + ("…" if len(prompt) > 200 else "")
-            view = CancelQueuedView(queued)
+            view = PreemptView(queued, self)
             label = self._system_run_labels.get(thread_id)
             label_str = f" — {label}" if label else ""
             queue_msg = await message.channel.send(f"*Queued (position {position}{label_str}):* `{preview}`", view=view)
