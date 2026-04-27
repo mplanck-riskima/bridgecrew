@@ -281,6 +281,8 @@ class ClaudePromptCog(commands.Cog):
         self._workers: dict[int, asyncio.Task] = {}
         # thread_id -> human-readable label explaining why the thread is busy (e.g. "completing feature `foo`")
         self._system_run_labels: dict[int, str] = {}
+        # thread_id -> QueuedPrompt currently being processed by the worker
+        self._current_items: dict[int, QueuedPrompt] = {}
 
     def has_active_work(self, thread_id: int) -> bool:
         """Check if a thread has an active worker or queued items."""
@@ -501,16 +503,13 @@ class ClaudePromptCog(commands.Cog):
                 # Skip cancelled items
                 if item.cancelled:
                     continue
-                # Deactivate the Remove button on the queued notification
+                # Remove buttons from the queue notification once processing starts
                 if item.queue_message:
                     try:
-                        view = CancelQueuedView(item)
-                        view.remove.disabled = True
-                        view.remove.label = "Processing..."
-                        view.remove.style = discord.ButtonStyle.secondary
-                        await item.queue_message.edit(view=view)
+                        await item.queue_message.edit(view=None)
                     except discord.HTTPException:
                         pass
+                self._current_items[thread_id] = item
                 try:
                     await self._process_prompt(item)
                 except Exception as e:
@@ -519,6 +518,8 @@ class ClaudePromptCog(commands.Cog):
                         await item.message.channel.send(f"**Error:** {e}")
                     except discord.HTTPException:
                         pass
+                finally:
+                    self._current_items.pop(thread_id, None)
         finally:
             # Clean up if the queue is empty
             if queue.empty():
