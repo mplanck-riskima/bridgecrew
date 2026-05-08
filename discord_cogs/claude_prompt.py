@@ -1451,6 +1451,32 @@ class ClaudePromptCog(commands.Cog):
             for fp in downloaded_files:
                 prompt += f"- {fp.resolve()}\n"
 
+        # Transcribe voice messages and inject transcript as prompt text
+        if item.voice_attachment is not None:
+            if self.bot.voice_transcriber is None:
+                await message.channel.send(
+                    "❌ Voice transcription is not available — `faster-whisper` is not installed."
+                )
+                return
+            try:
+                transcript = await self.bot.voice_transcriber.transcribe(item.voice_attachment)
+            except Exception:
+                log.exception("Voice transcription failed")
+                await message.channel.send(
+                    "❌ Voice transcription failed — please send a text message instead."
+                )
+                return
+            if not transcript:
+                await message.channel.send(
+                    "🎙️ Couldn't make out any speech — please try again."
+                )
+                return
+            await message.channel.send(f'🎙️ *Transcribed:* "{transcript}"')
+            if prompt:
+                prompt = f"{prompt}\n\n[Voice message]: {transcript}"
+            else:
+                prompt = transcript
+
         # Snapshot full diff state so we can detect any changes (committed or not)
         is_self = self.bot.is_self_project(project_dir)
         diff_snapshot = None
