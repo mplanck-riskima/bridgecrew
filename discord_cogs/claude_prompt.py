@@ -431,7 +431,8 @@ class ClaudePromptCog(commands.Cog):
                 return
 
             channel_id = message.channel.id
-            queued = QueuedPrompt(message=message, prompt=prompt, project=None, attachments=list(message.attachments), voice_attachment=voice_att)
+            regular_atts = [a for a in message.attachments if a is not voice_att]
+            queued = QueuedPrompt(message=message, prompt=prompt, project=None, attachments=regular_atts, voice_attachment=voice_att)
 
             if channel_id not in self._queues:
                 self._queues[channel_id] = asyncio.Queue()
@@ -443,7 +444,8 @@ class ClaudePromptCog(commands.Cog):
                 await queue.put(queued)
                 position = queue.qsize()
                 await message.add_reaction("\U0001f4cb")
-                preview = prompt[:200] + ("…" if len(prompt) > 200 else "")
+                preview_text = prompt if prompt else ("(voice message)" if voice_att else "")
+                preview = preview_text[:200] + ("…" if len(preview_text) > 200 else "")
                 view = PreemptView(queued, self)
                 label = self._system_run_labels.get(channel_id)
                 label_str = f" — {label}" if label else ""
@@ -462,7 +464,8 @@ class ClaudePromptCog(commands.Cog):
             return
 
         thread_id = message.channel.id
-        queued = QueuedPrompt(message=message, prompt=prompt, project=project, attachments=list(message.attachments), voice_attachment=voice_att)
+        regular_atts = [a for a in message.attachments if a is not voice_att]
+        queued = QueuedPrompt(message=message, prompt=prompt, project=project, attachments=regular_atts, voice_attachment=voice_att)
 
         # Get or create queue for this thread
         if thread_id not in self._queues:
@@ -476,7 +479,8 @@ class ClaudePromptCog(commands.Cog):
             await queue.put(queued)
             position = queue.qsize()
             await message.add_reaction("\U0001f4cb")  # clipboard emoji = queued
-            preview = prompt[:200] + ("…" if len(prompt) > 200 else "")
+            preview_text = prompt if prompt else ("(voice message)" if voice_att else "")
+            preview = preview_text[:200] + ("…" if len(preview_text) > 200 else "")
             view = PreemptView(queued, self)
             label = self._system_run_labels.get(thread_id)
             label_str = f" — {label}" if label else ""
