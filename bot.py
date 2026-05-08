@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -49,6 +50,12 @@ class ClaudeBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         self.claude_runner = ClaudeRunner()
         self.voice_notifier = VoiceNotifier(self)
+        try:
+            from core.voice_transcriber import VoiceTranscriber
+            self.voice_transcriber: "VoiceTranscriber | None" = VoiceTranscriber()
+        except ImportError:
+            log.warning("faster-whisper not installed — voice message transcription disabled.")
+            self.voice_transcriber = None
         self.workspace_dir = Path(WORKSPACE_DIR)
         self.project_manager = ProjectManager(
             workspace_dir=WORKSPACE_DIR,
@@ -67,6 +74,18 @@ class ClaudeBot(commands.Bot):
         await self.load_extension("discord_cogs.status")
         await self.load_extension("discord_cogs.voice")
         await self.load_extension("discord_cogs.personas")
+
+        @self.tree.error
+        async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+            log.exception("Slash command error in /%s", interaction.command and interaction.command.name, exc_info=error)
+            msg = f"Command failed: {error}"
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(msg, ephemeral=True)
+                else:
+                    await interaction.response.send_message(msg, ephemeral=True)
+            except Exception:
+                pass
 
         guild = discord.Object(id=int(GUILD_ID))
         self.tree.copy_global_to(guild=guild)
