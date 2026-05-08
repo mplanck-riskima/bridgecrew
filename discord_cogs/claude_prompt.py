@@ -215,6 +215,7 @@ class QueuedPrompt:
     attachments: list = field(default_factory=list)  # discord.Attachment objects
     cancelled: bool = False
     queue_message: object = None  # discord.Message showing the queued notification
+    voice_attachment: object = None  # discord.Attachment for Discord voice messages
 
 
 class CancelQueuedView(discord.ui.View):
@@ -417,8 +418,9 @@ class ClaudePromptCog(commands.Cog):
 
         # Strip the bot mention from the prompt
         prompt = self._strip_mention(message.content)
+        voice_att = message.attachments[0] if message.flags.voice and message.attachments else None
 
-        if not prompt:
+        if not prompt and not voice_att:
             await message.channel.send("Send a prompt after mentioning me.")
             return
 
@@ -429,7 +431,7 @@ class ClaudePromptCog(commands.Cog):
                 return
 
             channel_id = message.channel.id
-            queued = QueuedPrompt(message=message, prompt=prompt, project=None, attachments=list(message.attachments))
+            queued = QueuedPrompt(message=message, prompt=prompt, project=None, attachments=list(message.attachments), voice_attachment=voice_att)
 
             if channel_id not in self._queues:
                 self._queues[channel_id] = asyncio.Queue()
@@ -460,7 +462,7 @@ class ClaudePromptCog(commands.Cog):
             return
 
         thread_id = message.channel.id
-        queued = QueuedPrompt(message=message, prompt=prompt, project=project, attachments=list(message.attachments))
+        queued = QueuedPrompt(message=message, prompt=prompt, project=project, attachments=list(message.attachments), voice_attachment=voice_att)
 
         # Get or create queue for this thread
         if thread_id not in self._queues:
@@ -689,21 +691,22 @@ class ClaudePromptCog(commands.Cog):
                     if event.session_id:
                         last_session_id = event.session_id
                     print(flush=True)  # final newline after streaming
-                    # Persist session_id and model
+                    # Persist session_id and model (single load+save)
                     if event.session_id or event.model:
                         from core.state import load_project_state, save_project_state
-                        if event.session_id:
-                            _state = load_project_state(project_dir)
-                            _state["default_session_id"] = event.session_id
-                            save_project_state(project_dir, _state)
-
-                        # Save project-level defaults (bot state)
                         state = load_project_state(project_dir)
                         if event.session_id:
                             state["default_session_id"] = event.session_id
                         if event.model:
                             state["model"] = event.model
                         save_project_state(project_dir, state)
+
+                    # If Claude rotated the session ID (--resume creates a new file),
+                    # re-register with MCP so get_session_feature finds it next time
+                    # and cost tracking posts to the right session.
+                    if feature and event.session_id and event.session_id != session_id:
+                        from core.mcp_client import resume_feature_session as _re_reg
+                        asyncio.create_task(_re_reg(project_dir, event.session_id, feature.name))
 
                     # Show context health and cost footer
                     if event.input_tokens is not None:
@@ -736,11 +739,11 @@ class ClaudePromptCog(commands.Cog):
                         # Accumulate cost for the session/feature (still tracked, just not shown)
                         _out_tokens = event.output_tokens or 0
                         _cost = event.cost_usd or 0.0
-                        if feature and session_id:
+                        if feature and last_session_id:
                             from core.mcp_client import post_cost as _post_cost
                             asyncio.create_task(_post_cost(
                                 project_dir,
-                                session_id=session_id,
+                                session_id=last_session_id,
                                 cost_usd=_cost,
                                 input_tokens=context_fill,
                                 output_tokens=_out_tokens,
@@ -1030,6 +1033,7 @@ class ClaudePromptCog(commands.Cog):
                     session_id=session_id,
                     resume=session_id is not None,
                     feature=None,
+                    workspace_context=self._build_project_context(include_paths=True),
                 )
             finally:
                 self._system_run_labels.pop(thread_id, None)
@@ -1083,7 +1087,9 @@ class ClaudePromptCog(commands.Cog):
         thread_id = channel.id
 
         milestone_prompt = (
-            f"The user is resetting the context window for feature **`{feature_name}`**. "
+            f"The user is resetting the context window for feature **`{feature_name}`** "
+            f"in this repository only. Focus exclusively on work done in this project — "
+            f"do not reference any other projects.\n\n"
             f"Before the session is cleared, please capture a milestone snapshot:\n\n"
             f"1. Review recent git history (`git log --oneline -20`) and any relevant changed "
             f"files to understand what has been accomplished so far in this session.\n"
@@ -1113,6 +1119,7 @@ class ClaudePromptCog(commands.Cog):
                     session_id=old_session_id,
                     resume=True,
                     feature=None,
+                    workspace_context=self._build_project_context(include_paths=True),
                 )
             finally:
                 self._system_run_labels.pop(thread_id, None)
@@ -1139,6 +1146,7 @@ class ClaudePromptCog(commands.Cog):
                     session_id=None,   # fresh session
                     resume=False,
                     feature=None,
+                    workspace_context=self._build_project_context(include_paths=True),
                 )
             finally:
                 self._system_run_labels.pop(thread_id, None)
