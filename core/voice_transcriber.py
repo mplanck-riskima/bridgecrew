@@ -1,6 +1,8 @@
+import asyncio
 import logging
 import os
 import tempfile
+import threading
 
 log = logging.getLogger(__name__)
 
@@ -14,13 +16,15 @@ class VoiceTranscriber:
 
     def __init__(self) -> None:
         self._model = None
+        self._lock = threading.Lock()
 
     def _load_model(self):
         from faster_whisper import WhisperModel
-        if self._model is None:
-            log.info("Loading faster-whisper 'base' model (first use)...")
-            self._model = WhisperModel("base", device="cpu", compute_type="int8")
-            log.info("faster-whisper model loaded.")
+        with self._lock:
+            if self._model is None:
+                log.info("Loading faster-whisper 'base' model (first use)...")
+                self._model = WhisperModel("base", device="cpu", compute_type="int8")
+                log.info("faster-whisper model loaded.")
         return self._model
 
     def _transcribe_sync(self, audio_bytes: bytes) -> str:
@@ -49,6 +53,5 @@ class VoiceTranscriber:
 
     async def transcribe(self, attachment) -> str:
         """Download a Discord attachment and transcribe it. Non-blocking."""
-        import asyncio
         audio_bytes = await attachment.read()
         return await asyncio.to_thread(self._transcribe_sync, audio_bytes)
