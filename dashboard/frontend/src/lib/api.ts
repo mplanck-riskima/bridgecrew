@@ -13,14 +13,25 @@ import type {
   PromptTemplate,
   ScheduledTask,
 } from "./types";
+import { TOKEN_KEY } from "@/context/AuthContext";
 
 const BASE = "/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = sessionStorage.getItem(TOKEN_KEY);
+  const baseHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) baseHeaders["Authorization"] = `Bearer ${token}`;
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers: { ...baseHeaders, ...(init?.headers as Record<string, string> | undefined) },
   });
+
+  if (res.status === 401) {
+    sessionStorage.removeItem(TOKEN_KEY);
+    window.location.href = "/login";
+    throw new Error("401: Unauthorized");
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`${res.status}: ${body}`);
