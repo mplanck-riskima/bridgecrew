@@ -30,6 +30,12 @@ class BridgeCrewSettings(BaseSettings):
     # only matters for local dev. Set to your Railway URL if you ever split services.
     ALLOWED_ORIGINS: str = "http://localhost:5173"
 
+    # Google OAuth + dashboard JWT
+    GOOGLE_CLIENT_ID: str = ""
+    ALLOWED_EMAIL: str = ""
+    JWT_SECRET: str = ""
+    JWT_EXPIRE_HOURS: int = 24
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
