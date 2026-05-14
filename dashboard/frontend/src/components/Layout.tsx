@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from "react-router";
+import { NavLink, Outlet, useNavigate } from "react-router";
+import { useAuth } from "@/context/AuthContext";
 
 const NAV_ITEMS = [
   { to: "/",          label: "BRIDGE",    sub: "Main View"  },
@@ -9,6 +10,14 @@ const NAV_ITEMS = [
 ];
 
 export default function Layout() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  function handleLogout() {
+    logout();
+    navigate("/login", { replace: true });
+  }
+
   return (
     <div className="flex flex-col md:flex-row h-screen bg-lcars-bg font-lcars overflow-hidden">
 
@@ -89,10 +98,16 @@ export default function Layout() {
         {/* Bottom corner piece */}
         <div className="flex shrink-0" style={{ height: "40px" }}>
           <div className="w-12 h-full bg-lcars-orange rounded-tr-[2rem] shrink-0" />
-          <div className="flex-1 flex items-center pl-3">
+          <div className="flex-1 flex items-center justify-between pl-3 pr-2">
             <span className="text-lcars-muted text-xs font-mono tracking-widest opacity-60">
               {__COMMIT_HASH__}
             </span>
+            <button
+              onClick={handleLogout}
+              className="text-lcars-muted text-xs font-mono tracking-widest uppercase hover:text-lcars-orange transition-colors"
+            >
+              Logout
+            </button>
           </div>
         </div>
 
