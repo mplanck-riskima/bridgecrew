@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from pymongo import DESCENDING
 from pymongo.errors import DuplicateKeyError
 from ulid import ULID
 
 from app.db import cost_log_col, features_col
-from app.middleware.api_key import require_api_key
 
 router = APIRouter(tags=["features"])
 
@@ -113,7 +112,6 @@ def delete_feature(feature_id: str) -> dict:
 @router.post("/features", status_code=201)
 def create_feature(
     body: FeatureCreate,
-    _: None = Depends(require_api_key),
 ) -> dict:
     """Create a feature record (called by the discord-Claude bot on /start-feature)."""
     doc = {
@@ -146,7 +144,6 @@ def create_feature(
 def update_feature(
     feature_id: str,
     body: FeatureUpdate,
-    _: None = Depends(require_api_key),
 ) -> dict:
     """Update a feature (called by the discord-Claude bot on completion / cost accumulation)."""
     updates = body.model_dump(exclude_none=True)

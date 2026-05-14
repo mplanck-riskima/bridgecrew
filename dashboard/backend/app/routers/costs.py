@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from app.db import cost_log_col, projects_col
-from app.middleware.api_key import require_api_key
 
 router = APIRouter(tags=["costs"])
 
@@ -29,7 +28,6 @@ class CostCreate(BaseModel):
 @router.post("/costs", status_code=201)
 def ingest_cost(
     body: CostCreate,
-    _: None = Depends(require_api_key),
 ) -> dict:
     """Record a cost entry from the discord-Claude bot."""
     now = datetime.now(UTC)

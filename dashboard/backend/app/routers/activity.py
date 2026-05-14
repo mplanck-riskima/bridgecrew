@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.db import activity_col
-from app.middleware.api_key import require_api_key
 
 router = APIRouter(tags=["activity"])
 
@@ -36,7 +35,7 @@ def _to_out(doc: dict) -> dict:
 
 
 @router.post("/activity", status_code=201)
-def ingest_activity(body: ActivityCreate, _: None = Depends(require_api_key)) -> dict:
+def ingest_activity(body: ActivityCreate) -> dict:
     doc = {
         "project_id": body.project_id,
         "role": body.role,

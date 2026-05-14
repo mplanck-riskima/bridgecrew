@@ -5,11 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.db import prompt_templates_col
-from app.middleware.api_key import require_api_key
 
 router = APIRouter(tags=["prompts"])
 
@@ -53,7 +52,7 @@ def create_prompt(body: PromptCreate) -> dict:
 
 
 @router.get("/prompts/{prompt_id}")
-def get_prompt(prompt_id: str, _: None = Depends(require_api_key)) -> dict:
+def get_prompt(prompt_id: str) -> dict:
     """Return a single prompt template (bot-facing, requires API key)."""
     try:
         oid = ObjectId(prompt_id)

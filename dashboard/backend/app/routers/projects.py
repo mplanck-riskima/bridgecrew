@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from pymongo import DESCENDING
 from ulid import ULID
@@ -12,7 +12,6 @@ from ulid import ULID
 from bson import ObjectId
 
 from app.db import cost_log_col, features_col, prompt_templates_col, projects_col
-from app.middleware.api_key import require_api_key
 
 router = APIRouter(tags=["projects"])
 
@@ -136,7 +135,6 @@ def delete_project(project_id: str) -> dict:
 @router.get("/projects/{project_id}/prompt")
 def get_project_prompt(
     project_id: str,
-    _: None = Depends(require_api_key),
 ) -> dict:
     """Return the assigned prompt template content for a project (bot-facing, requires API key)."""
     project = projects_col().find_one({"project_id": project_id}, {"_id": 0})
