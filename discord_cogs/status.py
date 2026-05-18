@@ -1,3 +1,5 @@
+import asyncio
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -20,13 +22,14 @@ class StatusCog(commands.Cog):
     @app_commands.command(name="status", description="Show current status for this project")
     @captains_only()
     async def status(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
         channel = interaction.channel
 
         # If used in a thread, show project-specific status
         if isinstance(channel, discord.Thread):
             project = self.bot.project_manager.get_project_by_thread(channel.id)
             if not project:
-                await interaction.response.send_message("This thread isn't linked to a project.", ephemeral=True)
+                await interaction.followup.send("This thread isn't linked to a project.", ephemeral=True)
                 return
 
             project_dir = self.bot.project_manager.get_project_dir(project)
@@ -83,7 +86,7 @@ class StatusCog(commands.Cog):
                 last = history[-1]
                 lines.append(f"- Last prompt: \"{last['prompt_summary'][:80]}\" by {last['user']}")
 
-            usage = get_usage_summary()
+            usage = await asyncio.to_thread(get_usage_summary)
             lines.append("")
             lines.append("**Claude Usage:**")
             lines.append(
@@ -97,13 +100,13 @@ class StatusCog(commands.Cog):
                 f" · resets {fmt_time_until(usage.weekly_resets_at)}"
             )
 
-            await interaction.response.send_message("\n".join(lines))
+            await interaction.followup.send("\n".join(lines))
         else:
             # Main channel — show overview
             pm = self.bot.project_manager
             projects = pm.projects
             if not projects:
-                await interaction.response.send_message("No projects. Run `/sync-projects` first.")
+                await interaction.followup.send("No projects. Run `/sync-projects` first.")
                 return
 
             # Collect active and idle projects
@@ -154,7 +157,7 @@ class StatusCog(commands.Cog):
                 lines.append(f"\n💤 **Idle ({len(idle_lines)}):**")
                 lines.extend(idle_lines)
 
-            usage = get_usage_summary()
+            usage = await asyncio.to_thread(get_usage_summary)
             lines.append("\n**Claude Usage:**")
             lines.append(
                 f"- Today: {fmt_tokens(usage.today.output_tokens)} out / {fmt_tokens(usage.today.input_tokens)} in"
@@ -167,7 +170,7 @@ class StatusCog(commands.Cog):
                 f" · resets {fmt_time_until(usage.weekly_resets_at)}"
             )
 
-            await interaction.response.send_message("\n".join(lines))
+            await interaction.followup.send("\n".join(lines))
 
     @app_commands.command(name="restart-bot", description="Restart the bot process")
     @captains_only()
@@ -252,24 +255,35 @@ class StatusCog(commands.Cog):
             return
 
         project_dir = self.bot.project_manager.get_project_dir(project)
-        import json as _json
-        _fdir = project_dir / ".claude" / "features"
-        _active_feat_name = None
-        if _fdir.exists():
-            for _fp in _fdir.glob("*.json"):
-                try:
-                    _fd = _json.loads(_fp.read_text(encoding="utf-8"))
-                    if _fd.get("status") == "active":
-                        _active_feat_name = _fd.get("name")
-                        break
-                except Exception:
-                    pass
 
         from core.state import load_project_state, save_project_state
         state = load_project_state(project_dir)
         old_session_id = state.get("default_session_id")
         state["default_session_id"] = None
         save_project_state(project_dir, state)
+
+        # Prefer MCP-registered feature for this specific session over alphabetical
+        # disk scan, which would pick the wrong feature if multiple are "active".
+        _active_feat_name = None
+        if old_session_id:
+            from core.mcp_client import get_session_feature as _get_sf_reset
+            _feat_dict = await _get_sf_reset(project_dir, old_session_id)
+            if _feat_dict:
+                _active_feat_name = _feat_dict.get("name")
+
+        # Fallback: alphabetical disk scan (session not yet registered with MCP)
+        if not _active_feat_name:
+            import json as _json
+            _fdir = project_dir / ".claude" / "features"
+            if _fdir.exists():
+                for _fp in _fdir.glob("*.json"):
+                    try:
+                        _fd = _json.loads(_fp.read_text(encoding="utf-8"))
+                        if _fd.get("status") == "active":
+                            _active_feat_name = _fd.get("name")
+                            break
+                    except Exception:
+                        pass
         label = f"feature `{_active_feat_name}`" if _active_feat_name else "project session"
 
         if _active_feat_name and old_session_id:

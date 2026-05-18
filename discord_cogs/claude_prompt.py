@@ -784,7 +784,7 @@ class ClaudePromptCog(commands.Cog):
                         reset_str = ""
                         usage_str = ""
                         try:
-                            usage = get_usage_summary()
+                            usage = await asyncio.to_thread(get_usage_summary)
                             cur_out = event.output_tokens or 0
                             five_h_out = usage.five_hour.output_tokens + cur_out
                             week_out = usage.this_week.output_tokens + cur_out
