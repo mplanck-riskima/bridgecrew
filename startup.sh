@@ -81,7 +81,7 @@ if [ "$DASH_ONLY" = false ]; then
     set +a
 
     while true; do
-        python "$SCRIPT_DIR/bot.py" "$@" || EXIT_CODE=$?
+        PYTHONUTF8=1 python "$SCRIPT_DIR/bot.py" "$@" || EXIT_CODE=$?
         EXIT_CODE=${EXIT_CODE:-0}
         if [ $EXIT_CODE -ne 42 ]; then
             echo "Bot exited with code $EXIT_CODE."

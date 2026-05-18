@@ -18,7 +18,7 @@ DEFAULT_CONFIG = {
 
 def load_config() -> dict:
     if CONFIG_PATH.exists():
-        with open(CONFIG_PATH, "r") as f:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
     return dict(DEFAULT_CONFIG)
 
@@ -48,7 +48,7 @@ def remove_project(config: dict, name: str) -> dict:
 def load_project_state(project_dir: Path) -> dict:
     state_path = project_dir / ".claude-bot" / "state.json"
     if state_path.exists():
-        with open(state_path, "r") as f:
+        with open(state_path, "r", encoding="utf-8") as f:
             return json.load(f)
     return {"history": []}
 
@@ -65,7 +65,7 @@ def _atomic_write(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
             f.write("\n")
         # Retry with backoff for Windows file locking (WinError 5)

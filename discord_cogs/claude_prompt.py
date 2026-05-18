@@ -683,7 +683,7 @@ class ClaudePromptCog(commands.Cog):
                     await streamer.send_cancelled()
                     return last_session_id, None, ""
                 elif event.type == "error":
-                    print(f"\n[Error] {event.content}", flush=True)
+                    log.error("Claude error: %s", event.content)
                     await streamer.send_error(event.content)
                     if guild:
                         asyncio.create_task(self.bot.voice_notifier.voice_event(
