@@ -3,6 +3,10 @@ $InstallDir = "C:\ProgramData\BridgecrewDriveCheck"
 $LogFile    = "$InstallDir\drive-check.log"
 $RegFile    = "$InstallDir\drive-map.reg"
 
+if (-not (Test-Path $InstallDir)) {
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+}
+
 function Write-Log {
     param([string]$Message)
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -18,7 +22,13 @@ if ($existing) {
 }
 
 Write-Log "M: not found — importing $RegFile ..."
-$output = & reg import $RegFile 2>&1
+
+if (-not (Test-Path $RegFile)) {
+    Write-Log "ERROR: $RegFile not found — cannot import."
+    exit 1
+}
+
+$output = (& reg import $RegFile 2>&1) -join " "
 if ($LASTEXITCODE -ne 0) {
     Write-Log "ERROR: reg import failed (exit $LASTEXITCODE): $output"
     exit 1
