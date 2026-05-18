@@ -7,6 +7,9 @@ COPY dashboard/frontend/ ./
 # Railway injects RAILWAY_GIT_COMMIT_SHA at build time; node:alpine has no git.
 ARG RAILWAY_GIT_COMMIT_SHA
 ENV RAILWAY_GIT_COMMIT_SHA=$RAILWAY_GIT_COMMIT_SHA
+# VITE_ vars must be baked in at build time — declare as ARG so Railway passes them through.
+ARG VITE_GOOGLE_CLIENT_ID
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
 RUN npm run build
 
 # Stage 2: Backend + serve bundled frontend
