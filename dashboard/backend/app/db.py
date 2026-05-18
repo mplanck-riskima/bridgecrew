@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
+from pymongo.errors import OperationFailure
 
 from app.config import settings
 
@@ -47,6 +48,10 @@ def projects_col() -> Collection:
 
 def activity_col() -> Collection:
     col = get_db()["activity"]
-    # TTL index — documents expire automatically after 7 days
-    col.create_index([("created_at", ASCENDING)], expireAfterSeconds=604800, background=True)
+    try:
+        col.create_index([("created_at", ASCENDING)], expireAfterSeconds=604800, background=True)
+    except OperationFailure:
+        # TTL changed — drop and recreate the index with the new expiry
+        col.drop_index("created_at_1")
+        col.create_index([("created_at", ASCENDING)], expireAfterSeconds=604800, background=True)
     return col
