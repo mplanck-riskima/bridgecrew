@@ -4,11 +4,47 @@
 #   ./startup.sh              # Start bot only (default)
 #   ./startup.sh --with-dash  # Start bot + local dashboard (Docker)
 #   ./startup.sh --dash-only  # Skip bot, just start the local dashboard
-#   ./startup.sh --down       # Tear down local dashboard and exit
+#   ./startup.sh --down       # Tear down all services and exit
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+# Kill the process listening on a given port (cross-platform: Windows + Linux).
+_kill_port() {
+    local port=$1
+    local pid
+    pid=$(netstat -ano 2>/dev/null | grep ":${port}[[:space:]]" | grep -i "listen" | awk '{print $NF}' | grep -E '^[0-9]+$' | head -1)
+    if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+        echo "  Stopping PID $pid (port $port)..."
+        if command -v taskkill >/dev/null 2>&1; then
+            taskkill //PID "$pid" //F >/dev/null 2>&1 || true
+        else
+            kill "$pid" 2>/dev/null || true
+        fi
+    fi
+}
+
+# Full teardown of all managed services.
+_teardown() {
+    echo "=== Teardown: stopping existing services ==="
+
+    echo "  feature-mcp (port 8765)..."
+    _kill_port 8765
+
+    if docker info >/dev/null 2>&1; then
+        echo "  dashboard (Docker)..."
+        cd "$SCRIPT_DIR/dashboard" && docker compose down --remove-orphans 2>/dev/null || true
+        cd "$SCRIPT_DIR"
+    fi
+
+    echo "Teardown complete."
+    echo ""
+}
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
 
 WITH_DASH=false
 DASH_ONLY=false
@@ -18,13 +54,14 @@ for arg in "$@"; do
         --with-dash) WITH_DASH=true; shift ;;
         --dash-only) DASH_ONLY=true; shift ;;
         --down)
-            echo "Tearing down local dashboard..."
-            cd "$SCRIPT_DIR/dashboard" && docker compose down 2>/dev/null || true
-            echo "Done."
+            _teardown
             exit 0
             ;;
     esac
 done
+
+# ── Full teardown before starting ─────────────────────────────────────────────
+_teardown
 
 # ── Feature MCP Server ────────────────────────────────────────────────────────
 FEATURE_MCP_DIR="$SCRIPT_DIR/feature-mcp"
