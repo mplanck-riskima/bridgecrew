@@ -92,7 +92,7 @@ if (loading) return <div className="text-lcars-muted font-mono text-sm animate-p
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "features", label: "FEATURES" },
-    { key: "activity", label: "ACTIVITY" },
+    { key: "activity", label: "RECENT ACTIVITY" },
   ];
 
   return (
@@ -237,7 +237,7 @@ if (loading) return <div className="text-lcars-muted font-mono text-sm animate-p
           )}
           {activity.length === 0 && (
             <div className="text-lcars-muted font-mono text-sm p-4">
-              NO ACTIVITY IN THE LAST 24 HOURS — MESSAGES APPEAR HERE ONCE THE BOT IS ACTIVE
+              NO ACTIVITY IN THE LAST 7 DAYS — MESSAGES APPEAR HERE ONCE THE BOT IS ACTIVE
             </div>
           )}
           {[...activity].reverse().map((entry) => {

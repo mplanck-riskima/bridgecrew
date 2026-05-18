@@ -19,10 +19,6 @@ export default function Costs() {
   const projectData = Object.entries(breakdown.data?.by_project ?? {}).map(
     ([name, value]) => ({ name, value }),
   );
-  const categoryData = Object.entries(breakdown.data?.by_category ?? {}).map(
-    ([name, value]) => ({ name, value }),
-  );
-
   function LcarsPanel({ label, children }: { label: string; children: React.ReactNode }) {
     return (
       <div className="bg-lcars-panel border border-lcars-border">
@@ -66,22 +62,13 @@ export default function Costs() {
         </LcarsPanel>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <LcarsPanel label="By Project">
-          {breakdown.isLoading ? (
-            <div className="text-lcars-muted font-mono text-sm animate-pulse">── RETRIEVING ──</div>
-          ) : (
-            <CostBarChart data={projectData} title="" />
-          )}
-        </LcarsPanel>
-        <LcarsPanel label="By Category">
-          {breakdown.isLoading ? (
-            <div className="text-lcars-muted font-mono text-sm animate-pulse">── RETRIEVING ──</div>
-          ) : (
-            <CostBarChart data={categoryData} title="" />
-          )}
-        </LcarsPanel>
-      </div>
+      <LcarsPanel label="By Project">
+        {breakdown.isLoading ? (
+          <div className="text-lcars-muted font-mono text-sm animate-pulse">── RETRIEVING ──</div>
+        ) : (
+          <CostBarChart data={projectData} title="" />
+        )}
+      </LcarsPanel>
     </div>
   );
 }
