@@ -36,7 +36,7 @@ def login(body: LoginRequest) -> LoginResponse:
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid Google token")
 
-    if idinfo.get("email") != settings.ALLOWED_EMAIL:
+    if idinfo.get("email") not in settings.allowed_emails_list:
         raise HTTPException(status_code=403, detail="This Google account is not authorized")
 
     expires_in = settings.JWT_EXPIRE_HOURS * 3600

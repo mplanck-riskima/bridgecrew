@@ -47,7 +47,7 @@ Steps to create the OAuth 2.0 client ID for the dashboard — covers both local 
 
 ```env
 GOOGLE_CLIENT_ID=<your-client-id>.apps.googleusercontent.com
-ALLOWED_EMAIL=planckfamily@gmail.com
+ALLOWED_EMAILS=planckfamily@gmail.com,another@example.com
 JWT_SECRET=<generate below>
 JWT_EXPIRE_HOURS=24
 ```

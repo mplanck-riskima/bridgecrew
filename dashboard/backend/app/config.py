@@ -32,13 +32,17 @@ class BridgeCrewSettings(BaseSettings):
 
     # Google OAuth + dashboard JWT
     GOOGLE_CLIENT_ID: str = ""
-    ALLOWED_EMAIL: str = ""
+    ALLOWED_EMAILS: str = ""
     JWT_SECRET: str = ""
     JWT_EXPIRE_HOURS: int = 24
 
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def allowed_emails_list(self) -> list[str]:
+        return [e.strip() for e in self.ALLOWED_EMAILS.split(",") if e.strip()]
 
 
 settings = BridgeCrewSettings()  # type: ignore[call-arg]
