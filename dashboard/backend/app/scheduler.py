@@ -40,6 +40,26 @@ async def _fire_task(task_id: str) -> None:
     log.info("Task %s result: %s %s", task_id, status, detail)
 
 
+async def _fire_maintainer(maintainer_id: str) -> None:
+    """Load maintainer from DB and dispatch. Called by APScheduler."""
+    from bson import ObjectId
+
+    from app.db import project_maintainers_col
+    from app.routers.maintainers import _run_maintainer
+
+    task = project_maintainers_col().find_one({"_id": ObjectId(maintainer_id)})
+    if task is None:
+        log.warning("Maintainer %s not found in DB — skipping", maintainer_id)
+        return
+    if not task.get("enabled", False):
+        log.warning("Maintainer %s fired but is disabled — skipping", maintainer_id)
+        return
+
+    log.info("Auto-firing maintainer: %s", task.get("name", maintainer_id))
+    status, detail = await _run_maintainer(task)
+    log.info("Maintainer %s result: %s %s", maintainer_id, status, detail)
+
+
 def reload_schedules() -> None:
     """Sync all enabled schedules from MongoDB into APScheduler.
 
@@ -84,6 +104,40 @@ def reload_schedules() -> None:
             log.info("Scheduled job '%s' (%s)", task.get("name"), cron_expr)
         except Exception as exc:
             log.warning("Skipping task %s — invalid cron '%s': %s", task_id, cron_expr, exc)
+
+    # Load maintainer jobs
+    from app.db import project_maintainers_col
+    maintainers = list(project_maintainers_col().find({"enabled": True}))
+    for maintainer in maintainers:
+        m_id = str(maintainer["_id"])
+        cron_expr = maintainer.get("cron_expr", "").strip()
+        if not cron_expr:
+            continue
+        try:
+            parts = cron_expr.split()
+            if len(parts) != 5:
+                raise ValueError(f"expected 5 fields, got {len(parts)}")
+            minute, hour, day, month, day_of_week = parts
+            trigger = CronTrigger(
+                minute=minute,
+                hour=hour,
+                day=day,
+                month=month,
+                day_of_week=day_of_week,
+                timezone="America/Los_Angeles",
+            )
+            scheduler.add_job(
+                _fire_maintainer,
+                trigger=trigger,
+                args=[m_id],
+                id=f"maintainer:{m_id}",
+                name=maintainer.get("name", m_id),
+                replace_existing=True,
+                misfire_grace_time=60,
+            )
+            log.info("Scheduled maintainer '%s' (%s)", maintainer.get("name"), cron_expr)
+        except Exception as exc:
+            log.warning("Skipping maintainer %s — invalid cron '%s': %s", m_id, cron_expr, exc)
 
     log.info("Scheduler reload complete: %d job(s) active", len(scheduler.get_jobs()))
 
