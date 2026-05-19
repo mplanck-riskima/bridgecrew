@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import cronstrue from "cronstrue";
 import { api } from "@/lib/api";
 import type { ProjectMaintainer } from "@/lib/types";
@@ -35,7 +35,9 @@ interface Props {
 export default function MaintainerTab({ projectId, maintainers, onRefresh }: Props) {
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(BLANK_FORM);
+  const [form, setForm] = useState<Omit<ProjectMaintainer, "id" | "last_run" | "last_status" | "created_at" | "project_id">>(BLANK_FORM);
+  const [formError, setFormError] = useState<string | null>(null);
+  const timeoutRefs = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [saving, setSaving] = useState(false);
   const [triggering, setTriggering] = useState<string | null>(null);
   const [triggerResult, setTriggerResult] = useState<Record<string, string>>({});
@@ -65,7 +67,10 @@ export default function MaintainerTab({ projectId, maintainers, onRefresh }: Pro
     setEditingId(null);
   }
 
+  useEffect(() => () => { Object.values(timeoutRefs.current).forEach(clearTimeout); }, []);
+
   async function saveForm() {
+    setFormError(null);
     setSaving(true);
     try {
       if (editingId) {
@@ -76,7 +81,7 @@ export default function MaintainerTab({ projectId, maintainers, onRefresh }: Pro
       cancelForm();
       onRefresh();
     } catch (e) {
-      alert(String(e));
+      setFormError(String(e));
     } finally {
       setSaving(false);
     }
@@ -84,11 +89,12 @@ export default function MaintainerTab({ projectId, maintainers, onRefresh }: Pro
 
   async function deleteMaintainer(id: string) {
     if (!confirm("Delete this maintainer?")) return;
+    setFormError(null);
     try {
       await api.deleteMaintainer(id);
       onRefresh();
     } catch (e) {
-      alert(String(e));
+      setFormError(String(e));
     }
   }
 
@@ -97,10 +103,14 @@ export default function MaintainerTab({ projectId, maintainers, onRefresh }: Pro
     try {
       const result = await api.triggerMaintainer(id);
       setTriggerResult((prev) => ({ ...prev, [id]: result.status }));
-      setTimeout(() => setTriggerResult((prev) => { const n = {...prev}; delete n[id]; return n; }), 4000);
+      if (timeoutRefs.current[id]) clearTimeout(timeoutRefs.current[id]);
+      timeoutRefs.current[id] = setTimeout(() => {
+        setTriggerResult((r) => { const n = {...r}; delete n[id]; return n; });
+        delete timeoutRefs.current[id];
+      }, 4000);
       onRefresh();
     } catch (e) {
-      alert(String(e));
+      setFormError(String(e));
     } finally {
       setTriggering(null);
     }
@@ -123,6 +133,7 @@ export default function MaintainerTab({ projectId, maintainers, onRefresh }: Pro
 
       {showForm && (
         <div className="bg-lcars-panel border border-lcars-border p-4 space-y-3">
+          {formError && <p className="text-lcars-red text-sm mb-2">{formError}</p>}
           <div className="text-xs font-mono font-bold tracking-widest text-lcars-orange uppercase mb-2">
             {editingId ? "EDIT MAINTAINER" : "NEW MAINTAINER"}
           </div>
@@ -154,7 +165,7 @@ export default function MaintainerTab({ projectId, maintainers, onRefresh }: Pro
 
           <div>
             <label className="text-xs font-mono text-lcars-muted uppercase tracking-widest block mb-1">Log Retention (days)</label>
-            <input type="number" min={1} max={365} className={fieldCls} value={form.log_ttl_days} onChange={(e) => setForm((f) => ({ ...f, log_ttl_days: parseInt(e.target.value) || 7 }))} />
+            <input type="number" min={1} max={365} className={fieldCls} value={form.log_ttl_days} onChange={(e) => { const v = parseInt(e.target.value); setForm((f) => ({ ...f, log_ttl_days: Number.isFinite(v) && v > 0 ? v : 7 })); }} />
           </div>
 
           <div className="flex items-center gap-2">
@@ -188,7 +199,7 @@ export default function MaintainerTab({ projectId, maintainers, onRefresh }: Pro
                 <span className={`text-xs font-mono ${m.enabled ? "text-lcars-green" : "text-lcars-muted"}`}>
                   {m.enabled ? "ENABLED" : "DISABLED"}
                 </span>
-                <span className={`text-xs font-mono ${STATUS_COLORS[m.last_status]}`}>{m.last_status}</span>
+                <span className={`text-xs font-mono ${STATUS_COLORS[m.last_status] ?? "text-lcars-muted"}`}>{m.last_status}</span>
               </div>
               <div className="text-xs font-mono text-lcars-muted mt-1">
                 {safeDescribe(m.cron_expr) || m.cron_expr}
