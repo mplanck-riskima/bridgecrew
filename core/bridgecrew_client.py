@@ -144,17 +144,20 @@ def report_activity(
     author: str,
     content: str,
     feature_name: str | None = None,
+    ttl_days: int | None = None,
 ) -> None:
-    """Log a user message or Claude response to the 24-hour activity feed."""
+    """Log a user message or Claude response to the activity feed."""
     if not _enabled() or not project_id:
         return
-    payload = {
+    payload: dict = {
         "project_id": project_id,
         "role": role,
         "author": author,
         "content": content[:2000],
         "feature_name": feature_name,
     }
+    if ttl_days is not None:
+        payload["ttl_days"] = ttl_days
     try:
         resp = httpx.post(
             f"{_API_URL}/api/activity",
@@ -274,6 +277,25 @@ def assign_project_persona(project_id: str, prompt_template_id: str | None) -> b
         log.warning("assign_project_persona: HTTP %s", resp.status_code)
     except Exception as exc:
         log.warning("assign_project_persona failed: %s", exc)
+    return False
+
+
+def update_project(project_id: str, updates: dict) -> bool:
+    """PATCH a project's fields via PUT /api/projects/{id}. Returns True on success."""
+    if not _enabled() or not project_id:
+        return False
+    try:
+        resp = httpx.put(
+            f"{_API_URL}/api/projects/{project_id}",
+            headers=_headers(),
+            json=updates,
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return True
+        log.warning("update_project: HTTP %s for project %s", resp.status_code, project_id)
+    except Exception as exc:
+        log.warning("update_project failed: %s", exc)
     return False
 
 
