@@ -48,6 +48,21 @@ export interface ScheduledTask {
   last_status: "dispatched" | "failed" | "skipped" | "unknown";
 }
 
+export interface ProjectMaintainer {
+  id: string;
+  project_id: string;
+  name: string;
+  cron_expr: string;
+  enabled: boolean;
+  log_sources: string;
+  detection_instructions: string;
+  fix_instructions: string;
+  log_ttl_days: number;
+  last_run: string | null;
+  last_status: "dispatched" | "failed" | "skipped" | "unknown";
+  created_at: string;
+}
+
 export interface Project {
   project_id: string;
   name: string;

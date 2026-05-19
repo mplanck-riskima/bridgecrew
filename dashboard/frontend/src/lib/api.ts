@@ -10,6 +10,7 @@ import type {
   PaginatedResponse,
   PersonaDefinition,
   Project,
+  ProjectMaintainer,
   PromptTemplate,
   ScheduledTask,
 } from "./types";
@@ -85,6 +86,24 @@ export const api = {
     request<{ status: string; channel_id: string }>(`/schedules/${id}/trigger`, {
       method: "POST",
     }),
+
+  // Maintainers
+  getMaintainers: (projectId: string) =>
+    request<ProjectMaintainer[]>(`/maintainers?project_id=${encodeURIComponent(projectId)}`),
+  createMaintainer: (data: Omit<ProjectMaintainer, "id" | "last_run" | "last_status" | "created_at">) =>
+    request<ProjectMaintainer>("/maintainers", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateMaintainer: (id: string, data: Partial<ProjectMaintainer>) =>
+    request<ProjectMaintainer>(`/maintainers/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  deleteMaintainer: (id: string) =>
+    request<void>(`/maintainers/${id}`, { method: "DELETE" }),
+  triggerMaintainer: (id: string) =>
+    request<{ status: string }>(`/maintainers/${id}/trigger`, { method: "POST" }),
 
   // Costs
   getCostBreakdown: () => request<CostBreakdown>("/costs/breakdown"),
