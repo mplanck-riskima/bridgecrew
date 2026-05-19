@@ -3,10 +3,11 @@ import { Link, useParams } from "react-router";
 import MarkdownContent from "@/components/MarkdownContent";
 import StatusBadge from "@/components/StatusBadge";
 import { api } from "@/lib/api";
-import type { ActivityEntry, Feature, FeatureCostBreakdown, Project, PromptTemplate } from "@/lib/types";
+import MaintainerTab from "@/components/MaintainerTab";
+import type { ActivityEntry, Feature, FeatureCostBreakdown, Project, ProjectMaintainer, PromptTemplate } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
-type Tab = "features" | "activity";
+type Tab = "features" | "activity" | "maintainer";
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -19,6 +20,7 @@ export default function ProjectDetail() {
   const [savingPrompt, setSavingPrompt] = useState(false);
   const [costBreakdowns, setCostBreakdowns] = useState<Record<string, FeatureCostBreakdown>>({});
   const [expandedMarkdown, setExpandedMarkdown] = useState<string | null>(null);
+  const [maintainers, setMaintainers] = useState<ProjectMaintainer[]>([]);
 
   useEffect(() => {
     load();
@@ -38,10 +40,22 @@ export default function ProjectDetail() {
       // Use the resolved project_id (ULID) so activity lookup hits the right records
       const acts = await api.getProjectActivity(p.project_id);
       setActivity(acts);
+      const ms = await api.getMaintainers(p.project_id);
+      setMaintainers(ms);
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadMaintainers() {
+    if (!project) return;
+    try {
+      const ms = await api.getMaintainers(project.project_id);
+      setMaintainers(ms);
+    } catch {
+      // ignore
     }
   }
 
@@ -93,6 +107,7 @@ if (loading) return <div className="text-lcars-muted font-mono text-sm animate-p
   const tabs: { key: Tab; label: string }[] = [
     { key: "features", label: "FEATURES" },
     { key: "activity", label: "RECENT ACTIVITY" },
+    { key: "maintainer", label: "MAINTAINER" },
   ];
 
   return (
@@ -283,6 +298,14 @@ if (loading) return <div className="text-lcars-muted font-mono text-sm animate-p
             );
           })}
         </div>
+      )}
+
+      {tab === "maintainer" && (
+        <MaintainerTab
+          projectId={p.project_id}
+          maintainers={maintainers}
+          onRefresh={loadMaintainers}
+        />
       )}
 
     </div>
