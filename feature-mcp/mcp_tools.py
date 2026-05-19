@@ -25,23 +25,32 @@ def register_tools(mcp, store: FeatureStore) -> None:
         active = store.get_session_feature(pdir, session_id)
         # Fallback: if this session isn't registered, check if any feature has
         # status="active" on disk (e.g. set by /resume-feature skill before this
-        # session started). Auto-associate this session with it.
+        # session started). Auto-associate this session with it only if it's "orphaned"
+        # (no live in-memory session).
+        resume_candidates: list[str] = []
         if active is None:
-            for f in store.list_features(pdir):
-                if f.get("status") == "active":
-                    now = _now_iso()
-                    f.setdefault("sessions", []).append(
-                        {"session_id": session_id, "session_start": now,
-                         "source": "cli", "status": "active"}
-                    )
-                    f["session_id"] = session_id
-                    store.write_feature(pdir, f["name"], f)
-                    store.register_session(pdir, session_id, f["name"])
-                    active = f
-                    break
+            orphaned = [
+                f for f in store.list_features(pdir)
+                if f.get("status") == "active"
+                and store.get_active_session_for_feature(pdir, f["name"]) is None
+            ]
+            if len(orphaned) == 1:
+                f = orphaned[0]
+                now = _now_iso()
+                f.setdefault("sessions", []).append(
+                    {"session_id": session_id, "session_start": now,
+                     "source": "cli", "status": "active"}
+                )
+                f["session_id"] = session_id
+                store.write_feature(pdir, f["name"], f)
+                store.register_session(pdir, session_id, f["name"])
+                active = f
+            elif len(orphaned) > 1:
+                resume_candidates = [f["name"] for f in orphaned]
         all_features = store.list_features(pdir)
         return json.dumps({
             "active_feature": active,
+            "resume_candidates": resume_candidates,
             "all_features": [
                 {
                     "name": f.get("name"),

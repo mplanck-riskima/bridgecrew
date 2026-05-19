@@ -224,3 +224,79 @@ class TestDiscardPath:
         assert r.json()["status"] == "discarded"
         r2 = client.get(f"/api/projects/{_enc(proj)}/features")
         assert r2.json() == []
+
+
+# ── TestMultiSessionIsolation ─────────────────────────────────────────────
+
+class TestMultiSessionIsolation:
+    def test_context_fallback_ignores_live_rest_feature(self, e2e):
+        """CLI session must not auto-associate with a feature owned by a live REST session."""
+        mcp, store, client, proj = e2e
+        store.register_session(proj, "rest-bot", "feature-x")
+        store.write_feature(proj, "feature-x", {
+            "name": "feature-x", "status": "active", "session_id": "rest-bot",
+            "sessions": [{"session_id": "rest-bot", "session_start": _now_iso(),
+                           "source": "rest", "status": "active"}],
+            "milestones": [], "started_at": _now_iso(), "completed_at": None,
+            "total_cost_usd": 0.0, "total_input_tokens": 0, "total_output_tokens": 0,
+        })
+        result = json.loads(mcp.call("feature_context",
+                                     project_dir=str(proj), session_id="cli-new"))
+        assert result["active_feature"] is None
+
+    def test_context_fallback_auto_associates_single_orphan(self, e2e):
+        """CLI session auto-associates with an active feature that has no live session."""
+        mcp, store, client, proj = e2e
+        store.write_feature(proj, "feature-y", {
+            "name": "feature-y", "status": "active", "session_id": "stale-cli",
+            "sessions": [{"session_id": "stale-cli", "session_start": _now_iso(),
+                           "source": "cli", "status": "active"}],
+            "milestones": [], "started_at": _now_iso(), "completed_at": None,
+            "total_cost_usd": 0.0, "total_input_tokens": 0, "total_output_tokens": 0,
+        })
+        result = json.loads(mcp.call("feature_context",
+                                     project_dir=str(proj), session_id="cli-new"))
+        assert result["active_feature"] is not None
+        assert result["active_feature"]["name"] == "feature-y"
+
+    def test_context_fallback_returns_candidates_for_multiple_orphans(self, e2e):
+        """When multiple orphaned features exist, return resume_candidates and no auto-associate."""
+        mcp, store, client, proj = e2e
+        for name in ["alpha-feat", "beta-feat"]:
+            store.write_feature(proj, name, {
+                "name": name, "status": "active", "session_id": "stale-cli",
+                "sessions": [{"session_id": "stale-cli", "session_start": _now_iso(),
+                               "source": "cli", "status": "active"}],
+                "milestones": [], "started_at": _now_iso(), "completed_at": None,
+                "total_cost_usd": 0.0, "total_input_tokens": 0, "total_output_tokens": 0,
+            })
+        result = json.loads(mcp.call("feature_context",
+                                     project_dir=str(proj), session_id="cli-new"))
+        assert result["active_feature"] is None
+        assert set(result["resume_candidates"]) == {"alpha-feat", "beta-feat"}
+
+    def test_new_cli_session_finds_own_orphaned_feature_not_bot_feature(self, e2e):
+        """Core regression: bot's live feature (alphabetically first) must not be grabbed
+        by a new CLI session when the CLI's own orphaned feature also exists."""
+        mcp, store, client, proj = e2e
+        # feature-x (bot, live in memory, source=rest) sorts before feature-y alphabetically
+        store.register_session(proj, "rest-bot", "feature-x")
+        store.write_feature(proj, "feature-x", {
+            "name": "feature-x", "status": "active", "session_id": "rest-bot",
+            "sessions": [{"session_id": "rest-bot", "session_start": _now_iso(),
+                           "source": "rest", "status": "active"}],
+            "milestones": [], "started_at": _now_iso(), "completed_at": None,
+            "total_cost_usd": 0.0, "total_input_tokens": 0, "total_output_tokens": 0,
+        })
+        # feature-y (CLI, orphaned — no in-memory session)
+        store.write_feature(proj, "feature-y", {
+            "name": "feature-y", "status": "active", "session_id": "old-cli",
+            "sessions": [{"session_id": "old-cli", "session_start": _now_iso(),
+                           "source": "cli", "status": "active"}],
+            "milestones": [], "started_at": _now_iso(), "completed_at": None,
+            "total_cost_usd": 0.0, "total_input_tokens": 0, "total_output_tokens": 0,
+        })
+        result = json.loads(mcp.call("feature_context",
+                                     project_dir=str(proj), session_id="cli-new"))
+        assert result["active_feature"] is not None
+        assert result["active_feature"]["name"] == "feature-y"
