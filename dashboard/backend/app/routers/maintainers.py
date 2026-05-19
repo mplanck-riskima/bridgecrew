@@ -45,7 +45,7 @@ class MaintainerUpdate(BaseModel):
 
 
 @router.get("/maintainers")
-def list_maintainers(project_id: str) -> list[dict]:
+async def list_maintainers(project_id: str) -> list[dict]:
     """Return all maintainers for a project."""
     return [_serialize(doc) for doc in project_maintainers_col().find({"project_id": project_id})]
 

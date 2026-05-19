@@ -281,7 +281,7 @@ def assign_project_persona(project_id: str, prompt_template_id: str | None) -> b
 
 
 def update_project(project_id: str, updates: dict) -> bool:
-    """PATCH a project's fields via PUT /api/projects/{id}. Returns True on success."""
+    """Update a project's fields via PUT /api/projects/{id}. Returns True on success."""
     if not _enabled() or not project_id:
         return False
     try:
