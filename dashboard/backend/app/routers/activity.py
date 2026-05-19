@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -20,6 +20,7 @@ class ActivityCreate(BaseModel):
     author: str        # Discord username or "Claude"
     content: str
     feature_name: str | None = None
+    ttl_days: int | None = None
 
 
 def _to_out(doc: dict) -> dict:
@@ -36,14 +37,17 @@ def _to_out(doc: dict) -> dict:
 
 @router.post("/activity", status_code=201)
 def ingest_activity(body: ActivityCreate) -> dict:
+    now = datetime.now(timezone.utc)
     doc = {
         "project_id": body.project_id,
         "role": body.role,
         "author": body.author,
         "content": body.content[:CONTENT_LIMIT],
         "feature_name": body.feature_name,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": now,
     }
+    if body.ttl_days is not None:
+        doc["expires_at"] = now + timedelta(days=body.ttl_days)
     result = activity_col().insert_one(doc)
     doc["_id"] = result.inserted_id
     return _to_out(doc)
