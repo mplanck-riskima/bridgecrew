@@ -27,10 +27,11 @@ def register_tools(mcp, store: FeatureStore) -> None:
         # status="active" on disk (e.g. set by /resume-feature skill before this
         # session started). Auto-associate this session with it only if it's "orphaned"
         # (no live in-memory session).
+        all_features = store.list_features(pdir)
         resume_candidates: list[str] = []
         if active is None:
             orphaned = [
-                f for f in store.list_features(pdir)
+                f for f in all_features
                 if f.get("status") == "active"
                 and store.get_active_session_for_feature(pdir, f["name"]) is None
             ]
@@ -47,7 +48,6 @@ def register_tools(mcp, store: FeatureStore) -> None:
                 active = f
             elif len(orphaned) > 1:
                 resume_candidates = [f["name"] for f in orphaned]
-        all_features = store.list_features(pdir)
         return json.dumps({
             "active_feature": active,
             "resume_candidates": resume_candidates,

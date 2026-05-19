@@ -243,6 +243,7 @@ class TestMultiSessionIsolation:
         result = json.loads(mcp.call("feature_context",
                                      project_dir=str(proj), session_id="cli-new"))
         assert result["active_feature"] is None
+        assert result["resume_candidates"] == []
 
     def test_context_fallback_auto_associates_single_orphan(self, e2e):
         """CLI session auto-associates with an active feature that has no live session."""
@@ -258,6 +259,7 @@ class TestMultiSessionIsolation:
                                      project_dir=str(proj), session_id="cli-new"))
         assert result["active_feature"] is not None
         assert result["active_feature"]["name"] == "feature-y"
+        assert result["resume_candidates"] == []
 
     def test_context_fallback_returns_candidates_for_multiple_orphans(self, e2e):
         """When multiple orphaned features exist, return resume_candidates and no auto-associate."""
