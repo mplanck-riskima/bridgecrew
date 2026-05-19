@@ -1327,12 +1327,17 @@ class ClaudePromptCog(commands.Cog):
         import re as _re
         is_scheduled = bool(_re.search(r"\[scheduled-order\]", prompt, _re.IGNORECASE))
         scheduled_persona_id = ""
+        maintainer_ttl_days: int | None = None
         if is_scheduled:
             persona_match = _re.search(r"\[persona:([^\]]+)\]", prompt, _re.IGNORECASE)
             if persona_match:
                 scheduled_persona_id = persona_match.group(1).strip()
+            maintainer_match = _re.search(r"\[maintainer-run:(\d+)\]", prompt, _re.IGNORECASE)
+            if maintainer_match:
+                maintainer_ttl_days = int(maintainer_match.group(1))
             prompt = _re.sub(r"\s*\[scheduled-order\]\s*", "", prompt, flags=_re.IGNORECASE)
             prompt = _re.sub(r"\s*\[persona:[^\]]*\]\s*", "", prompt, flags=_re.IGNORECASE)
+            prompt = _re.sub(r"\s*\[maintainer-run:\d+\]\s*", "", prompt, flags=_re.IGNORECASE)
             prompt = prompt.strip()
 
         # Main channel queries run against the bot's own project directory
@@ -1427,17 +1432,31 @@ class ClaudePromptCog(commands.Cog):
         else:
             persona_content, persona_name = _get_prompt(bridgecrew_project_id) if bridgecrew_project_id else ("", "")
 
-        # Report the user's message to the activity feed (fire-and-forget)
-        if bridgecrew_project_id:
-            loop = asyncio.get_event_loop()
+        loop = asyncio.get_event_loop()
+
+        # Auto-register the project's Discord channel ID (fire-and-forget, once per project)
+        if bridgecrew_project_id and project and not state.get("discord_channel_registered"):
+            from core.bridgecrew_client import update_project as _update_project
+            _channel_id_str = str(message.channel.id)
             loop.run_in_executor(
                 None,
-                lambda: _report_activity(
+                lambda: _update_project(bridgecrew_project_id, {"discord_channel_id": _channel_id_str}),
+            )
+            state["discord_channel_registered"] = True
+            from core.state import save_project_state as _save_state
+            _save_state(project_dir, state)
+
+        # Report the user's message to the activity feed (fire-and-forget)
+        if bridgecrew_project_id:
+            loop.run_in_executor(
+                None,
+                lambda ttl=maintainer_ttl_days: _report_activity(
                     project_id=bridgecrew_project_id,
                     role="user",
                     author=str(message.author),
                     content=prompt,
                     feature_name=feature.name if feature else None,
+                    ttl_days=ttl,
                 ),
             )
 
@@ -1563,15 +1582,15 @@ class ClaudePromptCog(commands.Cog):
 
         # Report Claude's response to the activity feed (fire-and-forget)
         if bridgecrew_project_id and response_text:
-            loop = asyncio.get_event_loop()
             loop.run_in_executor(
                 None,
-                lambda: _report_activity(
+                lambda ttl=maintainer_ttl_days: _report_activity(
                     project_id=bridgecrew_project_id,
                     role="assistant",
                     author="Claude",
                     content=response_text,
                     feature_name=feature.name if feature else None,
+                    ttl_days=ttl,
                 ),
             )
 
