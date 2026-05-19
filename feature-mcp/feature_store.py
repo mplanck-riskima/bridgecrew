@@ -110,7 +110,7 @@ class FeatureStore:
                     continue
                 feature_name = data.get("name", json_path.stem)
                 for sess in data.get("sessions", []):
-                    if sess.get("status") == "active":
+                    if sess.get("status") == "active" and sess.get("source") != "cli":
                         self._sessions[sess["session_id"]] = (project_dir, feature_name)
                         log.append(
                             f"Restored: {project_dir.name}/{feature_name}"

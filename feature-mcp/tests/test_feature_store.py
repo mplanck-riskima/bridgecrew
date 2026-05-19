@@ -79,22 +79,37 @@ def test_get_active_session_for_feature(store, tmp_project):
     store.register_session(tmp_project, "sess-1", "feat-a")
     assert store.get_active_session_for_feature(tmp_project, "feat-a") == "sess-1"
 
-def test_startup_rebuilds_routing(tmp_project):
+def test_startup_restores_rest_sessions(tmp_project):
     from feature_store import FeatureStore, _now_iso
     now = _now_iso()
     data = {
-        "name": "feat-a",
-        "status": "active",
-        "session_id": "sess-rebuilt",
-        "sessions": [{"session_id": "sess-rebuilt", "session_start": now, "source": "cli", "status": "active"}],
+        "name": "feat-a", "status": "active", "session_id": "rest-sess",
+        "sessions": [{"session_id": "rest-sess", "session_start": now,
+                       "source": "rest", "status": "active"}],
         "milestones": [], "started_at": now, "completed_at": None,
         "total_cost_usd": 0.0, "total_input_tokens": 0, "total_output_tokens": 0,
     }
     store2 = FeatureStore([str(tmp_project)])
     store2.write_feature(tmp_project, "feat-a", data)
     log = store2.startup()
-    assert store2.get_session_feature(tmp_project, "sess-rebuilt") is not None
+    assert store2.get_session_feature(tmp_project, "rest-sess") is not None
     assert any("feat-a" in msg for msg in log)
+
+
+def test_startup_skips_cli_sessions(tmp_project):
+    from feature_store import FeatureStore, _now_iso
+    now = _now_iso()
+    data = {
+        "name": "feat-b", "status": "active", "session_id": "cli-sess",
+        "sessions": [{"session_id": "cli-sess", "session_start": now,
+                       "source": "cli", "status": "active"}],
+        "milestones": [], "started_at": now, "completed_at": None,
+        "total_cost_usd": 0.0, "total_input_tokens": 0, "total_output_tokens": 0,
+    }
+    store2 = FeatureStore([str(tmp_project)])
+    store2.write_feature(tmp_project, "feat-b", data)
+    store2.startup()
+    assert store2.get_session_feature(tmp_project, "cli-sess") is None
 
 def test_accumulate_cost(store, tmp_project):
     store.write_feature(tmp_project, "feat-a", {
