@@ -1327,16 +1327,21 @@ class ClaudePromptCog(commands.Cog):
         import re as _re
         is_scheduled = bool(_re.search(r"\[scheduled-order\]", prompt, _re.IGNORECASE))
         scheduled_persona_id = ""
+        scheduled_project_id = ""
         maintainer_ttl_days: int | None = None
         if is_scheduled:
             persona_match = _re.search(r"\[persona:([^\]]+)\]", prompt, _re.IGNORECASE)
             if persona_match:
                 scheduled_persona_id = persona_match.group(1).strip()
+            project_id_match = _re.search(r"\[scheduled-project:([^\]]+)\]", prompt, _re.IGNORECASE)
+            if project_id_match:
+                scheduled_project_id = project_id_match.group(1).strip()
             maintainer_match = _re.search(r"\[maintainer-run:(\d+)\]", prompt, _re.IGNORECASE)
             if maintainer_match:
                 maintainer_ttl_days = int(maintainer_match.group(1))
             prompt = _re.sub(r"\s*\[scheduled-order\]\s*", "", prompt, flags=_re.IGNORECASE)
             prompt = _re.sub(r"\s*\[persona:[^\]]*\]\s*", "", prompt, flags=_re.IGNORECASE)
+            prompt = _re.sub(r"\s*\[scheduled-project:[^\]]*\]\s*", "", prompt, flags=_re.IGNORECASE)
             prompt = _re.sub(r"\s*\[maintainer-run:\d+\]\s*", "", prompt, flags=_re.IGNORECASE)
             prompt = prompt.strip()
 
@@ -1345,6 +1350,16 @@ class ClaudePromptCog(commands.Cog):
             project_dir = Path(__file__).resolve().parent.parent
         else:
             project_dir = self.bot.project_manager.get_project_dir(project)
+
+        # If a scheduled order carries a project_id, resolve the correct project dir
+        if project is None and scheduled_project_id:
+            from core.state import load_project_state as _lps_lookup
+            for _p in self.bot.project_manager.projects.values():
+                _p_dir = self.bot.project_manager.get_project_dir(_p)
+                if _lps_lookup(_p_dir).get("bridgecrew_project_id") == scheduled_project_id:
+                    project = _p
+                    project_dir = _p_dir
+                    break
 
         # Load project state early — needed to find the active feature by session_id
         from core.state import load_project_state

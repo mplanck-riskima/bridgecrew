@@ -1,0 +1,21 @@
+{
+  "name": "orders-improvements",
+  "status": "active",
+  "session_id": "d668bf46-ebbf-495b-bd35-225b82e30641",
+  "description": "",
+  "sessions": [
+    {
+      "session_id": "d668bf46-ebbf-495b-bd35-225b82e30641",
+      "session_start": "2026-05-20T22:43:52.420411+00:00",
+      "source": "rest",
+      "status": "active"
+    }
+  ],
+  "milestones": [],
+  "started_at": "2026-05-20T22:43:52.420411+00:00",
+  "completed_at": null,
+  "total_cost_usd": 0.7387430500000001,
+  "total_input_tokens": 47610,
+  "total_output_tokens": 7793,
+  "prompt_count": 1
+}

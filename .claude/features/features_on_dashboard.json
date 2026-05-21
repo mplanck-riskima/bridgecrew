@@ -1,7 +1,7 @@
 {
   "name": "features-on-dashboard",
-  "status": "active",
-  "session_id": "3fc38f9c-a502-425b-9657-4e86b87f348c",
+  "status": "completed",
+  "session_id": "8c02a24d-d698-4c56-84b6-e86e805b52a8",
   "description": "",
   "sessions": [
     {
@@ -32,14 +32,35 @@
       "session_id": "3fc38f9c-a502-425b-9657-4e86b87f348c",
       "session_start": "2026-04-17T00:15:11.807994+00:00",
       "source": "rest",
-      "status": "active"
+      "status": "abandoned",
+      "abandoned_at": "2026-04-27T06:03:56.393875+00:00"
+    },
+    {
+      "session_id": "discord-exit-code-session",
+      "session_start": "2026-04-19T16:13:05.764770+00:00",
+      "source": "cli",
+      "status": "abandoned",
+      "abandoned_at": "2026-04-27T06:03:56.393875+00:00"
+    },
+    {
+      "session_id": "8c02a24d-d698-4c56-84b6-e86e805b52a8",
+      "session_start": "2026-04-27T06:03:16.709477+00:00",
+      "source": "cli",
+      "status": "completed",
+      "abandoned_at": "2026-04-27T06:03:56.393875+00:00"
+    },
+    {
+      "session_id": "8c02a24d-d698-4c56-84b6-e86e805b52a8",
+      "session_start": "2026-04-27T06:04:02.652229+00:00",
+      "source": "cli",
+      "status": "completed"
     }
   ],
   "milestones": [],
   "started_at": "2026-04-16T06:43:31.016780+00:00",
-  "completed_at": null,
-  "total_cost_usd": 7.7493038,
-  "total_input_tokens": 1401741,
-  "total_output_tokens": 45324,
-  "prompt_count": 15
+  "completed_at": "2026-04-27T06:04:30.042226+00:00",
+  "total_cost_usd": 7.9584956,
+  "total_input_tokens": 1442472,
+  "total_output_tokens": 45873,
+  "prompt_count": 16
 }

@@ -2,7 +2,16 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from pathlib import Path
+
+# On Windows the default console codec (cp1252/charmap) can't encode Unicode
+# characters that appear in log messages (e.g. → arrows from Claude output).
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import discord
 from discord import app_commands
@@ -178,18 +187,61 @@ class ClaudeBot(commands.Bot):
         await super().close()
 
 
-bot = ClaudeBot()
+_LOGIN_RETRY_DELAY = 65.0  # seconds to wait after a login-time rate limit before retrying
+_MAX_LOGIN_RETRIES = 4
+
+
+def _log_login_rate_limit(exc: discord.HTTPException, attempt: int) -> None:
+    headers = getattr(exc.response, "headers", {})
+    error_code = getattr(exc, "code", "?")
+    scope = headers.get("X-RateLimit-Scope", "unknown")
+    reset_after = headers.get("X-RateLimit-Reset-After", "?")
+    is_global = headers.get("X-RateLimit-Global", "false").lower() == "true"
+    bucket = headers.get("X-RateLimit-Bucket", "unknown")
+    log.error(
+        "Login rate limited (attempt %d/%d) — discord_error=%s scope=%s global=%s "
+        "bucket=%s reported_reset_after=%ss | %s",
+        attempt + 1, _MAX_LOGIN_RETRIES + 1,
+        error_code, scope, is_global, bucket, reset_after, exc,
+    )
+    if str(error_code) == "40062":
+        log.warning(
+            "Error 40062 is a per-resource rate limit caused by too many login attempts "
+            "in a short window. Discord's reported retry_after is often inaccurate for "
+            "this error — actual cooldown is typically 60+ seconds."
+        )
 
 
 def main() -> None:
-    try:
-        bot.run(DISCORD_TOKEN, log_handler=None)
-    except KeyboardInterrupt:
-        log.info("Interrupted")
+    for attempt in range(_MAX_LOGIN_RETRIES + 1):
+        current_bot = ClaudeBot()
+        try:
+            current_bot.run(DISCORD_TOKEN, log_handler=None)
+        except KeyboardInterrupt:
+            log.info("Interrupted")
+            return
+        except discord.errors.HTTPException as exc:
+            if exc.status != 429:
+                log.exception("Discord HTTP error during startup")
+                return
+            _log_login_rate_limit(exc, attempt)
+            if attempt < _MAX_LOGIN_RETRIES:
+                log.warning(
+                    "Waiting %.0fs before retrying login (attempt %d/%d)...",
+                    _LOGIN_RETRY_DELAY, attempt + 1, _MAX_LOGIN_RETRIES,
+                )
+                time.sleep(_LOGIN_RETRY_DELAY)
+                continue
+            log.error("Exhausted all login retry attempts (%d). Exiting.", _MAX_LOGIN_RETRIES + 1)
+            return
+        except Exception:
+            log.exception("Unexpected error during bot startup")
+            return
 
-    if bot._restart_requested:
-        log.info("Exiting with code %d to trigger restart", RESTART_EXIT_CODE)
-        sys.exit(RESTART_EXIT_CODE)
+        if current_bot._restart_requested:
+            log.info("Exiting with code %d to trigger restart", RESTART_EXIT_CODE)
+            sys.exit(RESTART_EXIT_CODE)
+        return
 
 
 if __name__ == "__main__":

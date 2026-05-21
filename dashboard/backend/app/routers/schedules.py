@@ -117,7 +117,8 @@ async def _run_task(task: dict) -> tuple[str, str]:
     bot_id = await _get_bot_id()
     mention = f"<@{bot_id}> " if bot_id else ""
     persona_marker = f"\n[persona:{task['prompt_template_id']}]" if task.get("prompt_template_id") else ""
-    full_prompt = f"{mention}{prompt}\n\n[scheduled-order]{persona_marker}"
+    project_marker = f"\n[scheduled-project:{task['project_id']}]" if task.get("project_id") else ""
+    full_prompt = f"{mention}{prompt}\n\n[scheduled-order]{persona_marker}{project_marker}"
 
     channel_id = task.get("discord_channel_id") or settings.DISCORD_CHANNEL_ID
     if not channel_id:

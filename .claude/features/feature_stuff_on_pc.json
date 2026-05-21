@@ -1,11 +1,11 @@
 {
   "started_at": "2026-04-05T20:45:36.088646+00:00",
   "status": "completed",
-  "total_input_tokens": 3334859,
-  "total_output_tokens": 307483,
-  "total_cost_usd": 24.003280699999998,
-  "prompt_count": 43,
-  "session_id": "c5cfbb73-8145-4db6-92e6-55124ed23e4e",
+  "total_input_tokens": 3383797,
+  "total_output_tokens": 378603,
+  "total_cost_usd": 26.7716006,
+  "prompt_count": 44,
+  "session_id": "6794c20d-abf7-483f-96ed-79704fb306b7",
   "sessions": [
     {
       "session_id": "05d05bbe-475b-429f-9901-9e9c7163a462",
@@ -48,8 +48,26 @@
       "session_start": "2026-04-15T22:10:02.316104+00:00",
       "source": "cli",
       "status": "completed"
+    },
+    {
+      "session_id": "f2138796-6331-4ddd-a512-aa7c021d3b6a",
+      "session_start": "2026-05-03T05:06:16.060328+00:00",
+      "source": "rest",
+      "status": "active"
+    },
+    {
+      "session_id": "6794c20d-abf7-483f-96ed-79704fb306b7",
+      "session_start": "2026-05-07T22:59:56.649192+00:00",
+      "source": "cli",
+      "status": "completed"
+    },
+    {
+      "session_id": "6794c20d-abf7-483f-96ed-79704fb306b7",
+      "session_start": "2026-05-07T23:00:10.284188+00:00",
+      "source": "cli",
+      "status": "completed"
     }
   ],
   "name": "feature-stuff-on-pc",
-  "completed_at": "2026-04-15T22:10:13.089205+00:00"
+  "completed_at": "2026-05-07T23:00:29.547591+00:00"
 }

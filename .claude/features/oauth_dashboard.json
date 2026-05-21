@@ -1,0 +1,51 @@
+{
+  "name": "oauth-dashboard",
+  "status": "completed",
+  "session_id": "528216fe-8ddd-4f7e-9a37-8883ac98d55c",
+  "description": "",
+  "sessions": [
+    {
+      "session_id": "230c9d13-10ef-46b1-81a9-41dd52fa68c8",
+      "session_start": "2026-05-17T23:12:05.303057+00:00",
+      "source": "rest",
+      "status": "active"
+    },
+    {
+      "session_id": "oauth-dashboard-session-001",
+      "session_start": "2026-05-17T23:12:18.828469+00:00",
+      "source": "cli",
+      "status": "active"
+    },
+    {
+      "session_id": "session-encoding-error-001",
+      "session_start": "2026-05-18T20:33:21.388726+00:00",
+      "source": "cli",
+      "status": "active"
+    },
+    {
+      "session_id": "oauth-dashboard-status-check",
+      "session_start": "2026-05-18T22:25:16.961818+00:00",
+      "source": "cli",
+      "status": "active"
+    },
+    {
+      "session_id": "brainstorm-project-maintainers",
+      "session_start": "2026-05-18T23:52:03.333936+00:00",
+      "source": "cli",
+      "status": "active"
+    },
+    {
+      "session_id": "528216fe-8ddd-4f7e-9a37-8883ac98d55c",
+      "session_start": "2026-05-20T16:49:26.674552+00:00",
+      "source": "cli",
+      "status": "completed"
+    }
+  ],
+  "milestones": [],
+  "started_at": "2026-05-17T23:12:05.303057+00:00",
+  "completed_at": "2026-05-20T16:49:37.253942+00:00",
+  "total_cost_usd": 0.0,
+  "total_input_tokens": 0,
+  "total_output_tokens": 0,
+  "prompt_count": 0
+}

@@ -1,0 +1,35 @@
+{
+  "name": "voice-mode",
+  "status": "completed",
+  "session_id": "8b7ce670-d0fb-47ec-8359-9e0329540679",
+  "description": "",
+  "sessions": [
+    {
+      "session_id": "3681742f-7dc4-405c-aa8a-b71cc119ca96",
+      "session_start": "2026-05-07T23:01:12.556980+00:00",
+      "source": "rest",
+      "status": "abandoned",
+      "abandoned_at": "2026-05-08T06:15:48.454212+00:00"
+    },
+    {
+      "session_id": "brainstorm-voice-mode",
+      "session_start": "2026-05-08T00:27:23.802233+00:00",
+      "source": "cli",
+      "status": "abandoned",
+      "abandoned_at": "2026-05-08T06:15:48.454212+00:00"
+    },
+    {
+      "session_id": "8b7ce670-d0fb-47ec-8359-9e0329540679",
+      "session_start": "2026-05-08T06:15:51.483537+00:00",
+      "source": "cli",
+      "status": "completed"
+    }
+  ],
+  "milestones": [],
+  "started_at": "2026-05-07T23:01:12.556980+00:00",
+  "completed_at": "2026-05-08T06:15:56.755185+00:00",
+  "total_cost_usd": 7.075861599999999,
+  "total_input_tokens": 1251512,
+  "total_output_tokens": 70128,
+  "prompt_count": 14
+}

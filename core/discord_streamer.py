@@ -15,17 +15,54 @@ EDIT_INTERVAL = 0.3  # seconds between edits
 T = TypeVar("T")
 
 
+def _log_rate_limit_info(exc: discord.HTTPException) -> None:
+    """Parse and log Discord rate limit details from a 429 HTTPException."""
+    headers = getattr(exc.response, "headers", {})
+    is_global = headers.get("X-RateLimit-Global", "").lower() == "true"
+    scope = headers.get("X-RateLimit-Scope", "unknown")
+    bucket = headers.get("X-RateLimit-Bucket", "unknown")
+    limit = headers.get("X-RateLimit-Limit", "?")
+    remaining = headers.get("X-RateLimit-Remaining", "?")
+    reset_after = headers.get("X-RateLimit-Reset-After", "?")
+    log.warning(
+        "Discord rate limited — global=%s scope=%s bucket=%s limit=%s remaining=%s reset_after=%ss | %s",
+        is_global, scope, bucket, limit, remaining, reset_after, exc,
+    )
+
+
 async def discord_retry(coro, *, retries: int = 3, base_delay: float = 2.0):
-    """Retry a Discord API coroutine on transient 5xx errors with exponential backoff."""
+    """Retry a Discord API coroutine on transient 5xx/429 errors with exponential backoff."""
     for attempt in range(retries):
         try:
             return await coro
+        except discord.errors.RateLimited as exc:
+            # Raised when retry_after exceeds max_ratelimit_timeout (not a subclass of HTTPException)
+            log.warning(
+                "Discord rate limited (attempt %d/%d) — retry_after=%.2fs",
+                attempt + 1, retries, exc.retry_after,
+            )
+            if attempt == retries - 1:
+                raise
+            await asyncio.sleep(exc.retry_after + 0.5)
         except discord.errors.DiscordServerError as exc:
             if attempt == retries - 1:
                 raise
             delay = base_delay * (2 ** attempt)
             log.warning("Discord 5xx on attempt %d/%d, retrying in %.1fs: %s", attempt + 1, retries, delay, exc)
             await asyncio.sleep(delay)
+        except discord.errors.HTTPException as exc:
+            if exc.status != 429:
+                raise
+            _log_rate_limit_info(exc)
+            if attempt == retries - 1:
+                raise
+            headers = getattr(exc.response, "headers", {})
+            try:
+                wait = float(headers.get("X-RateLimit-Reset-After", base_delay * (2 ** attempt))) + 0.5
+            except (ValueError, TypeError):
+                wait = base_delay * (2 ** attempt)
+            log.warning("... retrying in %.2fs (attempt %d/%d)", wait, attempt + 1, retries)
+            await asyncio.sleep(wait)
     raise RuntimeError("unreachable")
 
 
@@ -209,7 +246,10 @@ class DiscordStreamer:
                 try:
                     await self.current_message.edit(content=header + (self.current_text or "​"), view=None)
                 except discord.HTTPException as e:
-                    log.warning("Failed to edit message: %s", e)
+                    if e.status == 429:
+                        _log_rate_limit_info(e)
+                    else:
+                        log.warning("Failed to edit message: %s", e)
 
             # Start a new message for the overflow, with the stop button
             # If split mid-sentence (no code block), prepend the partial sentence to pending
@@ -238,7 +278,10 @@ class DiscordStreamer:
         try:
             await self.current_message.edit(content=self._current_header() + (text or "​"))
         except discord.HTTPException as e:
-            log.warning("Failed to edit message: %s", e)
+            if e.status == 429:
+                _log_rate_limit_info(e)
+            else:
+                log.warning("Failed to edit message: %s", e)
 
     def _build_continuation_prefix(self, is_code_block: bool = False) -> str:
         """Build the header for a continuation message."""

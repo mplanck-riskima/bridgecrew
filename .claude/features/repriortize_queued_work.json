@@ -1,0 +1,27 @@
+{
+  "name": "repriortize-queued-work",
+  "status": "completed",
+  "session_id": "session-repriortize-queued-work",
+  "description": "",
+  "sessions": [
+    {
+      "session_id": "61031fbd-0e85-42ed-b00f-1e1cdf80cfab",
+      "session_start": "2026-04-27T06:07:17.506870+00:00",
+      "source": "rest",
+      "status": "completed"
+    },
+    {
+      "session_id": "session-repriortize-queued-work",
+      "session_start": "2026-04-27T19:00:17.256922+00:00",
+      "source": "cli",
+      "status": "active"
+    }
+  ],
+  "milestones": [],
+  "started_at": "2026-04-27T06:07:17.506870+00:00",
+  "completed_at": "2026-05-03T05:05:31.281516+00:00",
+  "total_cost_usd": 10.1477507,
+  "total_input_tokens": 923105,
+  "total_output_tokens": 129388,
+  "prompt_count": 13
+}

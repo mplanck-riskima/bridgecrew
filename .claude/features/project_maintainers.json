@@ -1,0 +1,21 @@
+{
+  "name": "project-maintainers",
+  "status": "completed",
+  "session_id": "af7738d5-cf24-4004-affe-2c6100f10cc3",
+  "description": "",
+  "sessions": [
+    {
+      "session_id": "af7738d5-cf24-4004-affe-2c6100f10cc3",
+      "session_start": "2026-05-18T23:45:26.586017+00:00",
+      "source": "rest",
+      "status": "completed"
+    }
+  ],
+  "milestones": [],
+  "started_at": "2026-05-18T23:45:26.586017+00:00",
+  "completed_at": "2026-05-19T06:34:33.966491+00:00",
+  "total_cost_usd": 6.913267150000001,
+  "total_input_tokens": 677650,
+  "total_output_tokens": 97126,
+  "prompt_count": 15
+}
