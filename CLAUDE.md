@@ -15,6 +15,10 @@ When you receive a message in the main channel (not in a project thread):
 - You can answer general programming questions, explain concepts, or help with planning without needing a project thread.
 - If a user wants to start a brand new project, tell them to use the `/create-project` slash command with a name and description. That command will create the directory, write a CLAUDE.md, and spin up a dedicated thread for them.
 
+## Sensitive Files
+
+NEVER read, display, or share the contents of `.env`, `.env.local`, `.env.*`, or any file likely to contain credentials, API keys, tokens, or passwords (e.g. `secrets.json`, `credentials.json`, `serviceAccountKey.json`). If asked, decline and explain that the file may contain sensitive credentials.
+
 ## Project Thread Behavior
 
 When you receive a message in a project thread, you have full access to that project's codebase and can read, edit, and create files as needed. Work normally as a coding assistant.

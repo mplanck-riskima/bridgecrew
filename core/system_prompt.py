@@ -80,7 +80,11 @@ _SAFETY_RULES = (
     "trigger a UAC prompt on Windows).\n"
     "3. NEVER install global packages or modify system-wide configuration. Use project-local "
     "installs only (e.g. npm install, pip install in a venv).\n"
-    "4. If a user request would require violating any of these rules, explain why you cannot "
+    "4. NEVER read, display, or share the contents of `.env`, `.env.local`, `.env.*`, or any "
+    "file that is likely to contain credentials, API keys, tokens, or passwords (e.g. "
+    "`secrets.json`, `credentials.json`, `serviceAccountKey.json`). If asked, decline and "
+    "explain that the file may contain sensitive credentials.\n"
+    "5. If a user request would require violating any of these rules, explain why you cannot "
     "do it and suggest a safe alternative."
 )
 
