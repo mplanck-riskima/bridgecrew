@@ -303,6 +303,11 @@ class ClaudeRunner:
         # Each assistant event from the CLI contains message.usage with per-call
         # token counts. The last one is the true context-window fill at completion.
         last_turn_input = 0
+        # Tracks the model name seen in assistant message events.  The result event's
+        # modelUsage dict is the preferred source, but it can be absent (e.g. for
+        # certain CLI versions or tool-only turns).  Falling back to this ensures
+        # the 200k→1M context-window override always fires for Sonnet/Opus.
+        last_known_model: str = ""
         # Rate-limit info from rate_limit_event(s) — keyed by rateLimitType.
         # Multiple events may arrive (e.g. one daily, one weekly).
         rate_limits: dict[str, int] = {}  # rateLimitType -> resetsAt
@@ -327,16 +332,22 @@ class ClaudeRunner:
                     log.warning("Skipping malformed JSON line: %s", line[:200])
                     continue
 
-                # Update last_turn_input from each assistant message's per-call usage.
-                # This is more accurate than dividing aggregate totals by num_turns.
+                # Update last_turn_input and last_known_model from each assistant
+                # message's per-call payload.  This is more accurate than dividing
+                # aggregate totals by num_turns, and gives us a model-name fallback
+                # for when the result event's modelUsage dict is absent.
                 if data.get("type") == "assistant":
-                    usage = data.get("message", {}).get("usage", {})
+                    msg = data.get("message", {})
+                    usage = msg.get("usage", {})
                     if usage:
                         last_turn_input = (
                             usage.get("input_tokens", 0)
                             + usage.get("cache_read_input_tokens", 0)
                             + usage.get("cache_creation_input_tokens", 0)
                         )
+                    model_from_msg = msg.get("model", "")
+                    if model_from_msg:
+                        last_known_model = model_from_msg
 
                 # Capture rate_limit_event(s) for use in the result footer.
                 if data.get("type") == "rate_limit_event":
@@ -346,7 +357,7 @@ class ClaudeRunner:
                     if rtype and resets_at:
                         rate_limits[rtype] = resets_at
 
-                for event in self._parse_line(data, has_emitted_text, last_turn_input, rate_limits):
+                for event in self._parse_line(data, has_emitted_text, last_turn_input, rate_limits, last_known_model):
                     if event.type == "text" and event.content.strip():
                         has_emitted_text = True
                     yield event
@@ -358,10 +369,10 @@ class ClaudeRunner:
             except json.JSONDecodeError:
                 log.warning("Skipping malformed JSON line: %s", buffer[:200])
                 return
-            for event in self._parse_line(data, has_emitted_text, last_turn_input, rate_limits):
+            for event in self._parse_line(data, has_emitted_text, last_turn_input, rate_limits, last_known_model):
                 yield event
 
-    def _parse_line(self, data: dict, has_emitted_text: bool = False, last_turn_input: int = 0, rate_limits: dict | None = None) -> list[StreamEvent]:
+    def _parse_line(self, data: dict, has_emitted_text: bool = False, last_turn_input: int = 0, rate_limits: dict | None = None, last_known_model: str = "") -> list[StreamEvent]:
         msg_type = data.get("type", "")
 
         # Handle assistant messages (CLI stream-json format)
@@ -392,7 +403,7 @@ class ClaudeRunner:
             cost_raw = data.get("cost_usd") or data.get("total_cost_usd")
             num_turns = data.get("num_turns", 1)
             model_usage = data.get("modelUsage", {})
-            model_name = next(iter(model_usage.keys()), None)
+            model_name = next(iter(model_usage.keys()), None) or last_known_model or None
             usage = next(iter(model_usage.values()), {})
 
             log.info(

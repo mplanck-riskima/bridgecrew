@@ -633,7 +633,8 @@ class ClaudePromptCog(commands.Cog):
                           guild=None, project_name=None,
                           show_prompt_preview: bool = False,
                           is_scheduled: bool = False,
-                          initial_text: str = "") -> tuple[str | None, str | None, str]:
+                          initial_text: str = "",
+                          display_feature_name: str = "") -> tuple[str | None, str | None, str]:
         """Run Claude and stream to Discord. Returns (last_session_id, pending_question, response_text).
 
         project_dir: project root — used for state, token tracking, file security
@@ -645,7 +646,7 @@ class ClaudePromptCog(commands.Cog):
         # Start streaming with a cancel button
         cancel_fn = lambda: runner.cancel(thread_id)
         streamer = DiscordStreamer(channel, on_cancel=cancel_fn)
-        await streamer.start(prompt_preview=prompt if show_prompt_preview else "", persona_name=persona_name, session_id=session_id or "", feature_name=feature.name if feature else "")
+        await streamer.start(prompt_preview=prompt if show_prompt_preview else "", persona_name=persona_name, session_id=session_id or "", feature_name=feature.name if feature else display_feature_name)
         if initial_text:
             await streamer.feed(initial_text)
 
@@ -815,7 +816,8 @@ class ClaudePromptCog(commands.Cog):
 
                         # Session/feature line: model, feature, cumulative cost, prompt count
                         model_str = f"`{event.model}` · " if event.model else ""
-                        session_label = f"`{feature.name}`" if feature else "session"
+                        _feat_label = feature.name if feature else display_feature_name
+                        session_label = f"`{_feat_label}`" if _feat_label else "session"
                         cost_str = f"${totals['total_cost_usd']:.4f} · " if totals["total_cost_usd"] else ""
                         session_id_str = f" · `{last_session_id[:8]}`" if last_session_id else ""
                         session_line = f"*{model_str}{session_label} · {cost_str}{totals['prompt_count']} prompts{session_id_str}*"
@@ -1038,6 +1040,7 @@ class ClaudePromptCog(commands.Cog):
                     resume=session_id is not None,
                     feature=None,
                     workspace_context=self._build_project_context(include_paths=True),
+                    display_feature_name=feature_name,
                 )
             finally:
                 self._system_run_labels.pop(thread_id, None)
@@ -1151,6 +1154,7 @@ class ClaudePromptCog(commands.Cog):
                     resume=False,
                     feature=None,
                     workspace_context=self._build_project_context(include_paths=True),
+                    display_feature_name=feature_name,
                 )
             finally:
                 self._system_run_labels.pop(thread_id, None)
