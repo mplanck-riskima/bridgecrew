@@ -1127,6 +1127,7 @@ class ClaudePromptCog(commands.Cog):
                     resume=True,
                     feature=None,
                     workspace_context=self._build_project_context(include_paths=True),
+                    display_feature_name=feature_name,
                 )
             finally:
                 self._system_run_labels.pop(thread_id, None)
@@ -1213,6 +1214,7 @@ class ClaudePromptCog(commands.Cog):
                     session_id=session_id,
                     resume=True,
                     feature=None,
+                    display_feature_name=feature_name,
                 )
                 # Fallback: ensure the feature is marked completed in the MCP store even
                 # if Claude failed to call feature_complete via the MCP tool.  If Claude
