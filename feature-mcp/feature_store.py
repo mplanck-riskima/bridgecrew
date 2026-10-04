@@ -35,16 +35,27 @@ def _atomic_write(path: Path, data: dict) -> None:
 
 
 class FeatureStore:
-    def __init__(self, projects: list[str]):
+    def __init__(self, projects: list[str], config_path: Path | None = None):
         self._projects = [Path(p) for p in projects]
+        self._config_path = config_path
         # session_id -> (project_dir, feature_name)
         self._sessions: dict[str, tuple[Path, str]] = {}
 
     def ensure_project_dir(self, project_dir_str: str) -> Path:
         p = Path(project_dir_str)
         if p not in self._projects:
-            raise ValueError(f"Unknown project: {project_dir_str}")
+            self._projects.append(p)
+            (p / ".claude" / "features").mkdir(parents=True, exist_ok=True)
+            self._persist_projects()
         return p
+
+    def _persist_projects(self) -> None:
+        if not self._config_path:
+            return
+        try:
+            _atomic_write(self._config_path, [str(p).replace("\\", "/") for p in self._projects])
+        except Exception:
+            pass
 
     def _feature_path(self, project_dir: Path, name: str) -> Path:
         return project_dir / ".claude" / "features" / f"{to_snake(name)}.json"

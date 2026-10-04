@@ -1,19 +1,26 @@
 {
   "name": "orders-improvements",
-  "status": "active",
-  "session_id": "d668bf46-ebbf-495b-bd35-225b82e30641",
+  "status": "completed",
+  "session_id": "5a204421-4e42-43c5-8222-d661e1fdb425",
   "description": "",
   "sessions": [
     {
       "session_id": "d668bf46-ebbf-495b-bd35-225b82e30641",
       "session_start": "2026-05-20T22:43:52.420411+00:00",
       "source": "rest",
-      "status": "active"
+      "status": "abandoned",
+      "abandoned_at": "2026-10-03T21:53:45.528392+00:00"
+    },
+    {
+      "session_id": "5a204421-4e42-43c5-8222-d661e1fdb425",
+      "session_start": "2026-10-03T21:53:47.068369+00:00",
+      "source": "cli",
+      "status": "completed"
     }
   ],
   "milestones": [],
   "started_at": "2026-05-20T22:43:52.420411+00:00",
-  "completed_at": null,
+  "completed_at": "2026-10-03T21:53:50.840916+00:00",
   "total_cost_usd": 0.7387430500000001,
   "total_input_tokens": 47610,
   "total_output_tokens": 7793,

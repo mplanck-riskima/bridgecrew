@@ -96,16 +96,15 @@ def create_api_router(store: FeatureStore) -> APIRouter:
 
         session_id = body.session_id
 
-        # Auto-complete any feature already active for this session
+        # Suspend any feature already active for this session
         existing = store.get_session_feature(pdir, session_id)
         if existing:
-            existing["status"] = "completed"
-            existing["completed_at"] = _now_iso()
-            for s in existing.get("sessions", []):
-                if s.get("session_id") == session_id:
-                    s["status"] = "completed"
-            store.write_feature(pdir, existing["name"], existing)
-            store.unregister_session(session_id)
+            _suspend_feature(store, pdir, existing, session_id)
+
+        # Suspend any OTHER active features on this project (single-feature workflow)
+        for _other in store.list_features(pdir):
+            if _other.get("status") == "active" and _other.get("name") != feature_name:
+                _suspend_feature(store, pdir, _other)
 
         # Conflict check
         conflict_sid = store.get_active_session_for_feature(pdir, feature_name)
@@ -155,9 +154,15 @@ def create_api_router(store: FeatureStore) -> APIRouter:
                 return _json.loads(_conflict_response(store, pdir, body.feature_name, conflict_sid))
             _abandon_session(store, pdir, body.feature_name, conflict_sid)
 
+        # Suspend any OTHER active features on this project (single-feature workflow)
+        for _other in store.list_features(pdir):
+            if _other.get("status") == "active" and _other.get("name") != body.feature_name:
+                _suspend_feature(store, pdir, _other)
+
         now = _now_iso()
         data["status"] = "active"
         data["completed_at"] = None
+        data.pop("suspended_at", None)
         data["session_id"] = session_id
         data.setdefault("sessions", []).append(
             {"session_id": session_id, "session_start": now,
@@ -255,3 +260,19 @@ def create_api_router(store: FeatureStore) -> APIRouter:
         return {"status": "ok", "feature_name": feature_name, "abandoned_count": count}
 
     return router
+
+
+def _suspend_feature(store: FeatureStore, pdir, feat: dict, only_session: str | None = None) -> None:
+    """Mark a feature as suspended and unregister its active sessions.
+
+    If only_session is given, only that session entry is marked suspended;
+    otherwise all active sessions are suspended.
+    """
+    feat["status"] = "suspended"
+    feat.setdefault("suspended_at", _now_iso())
+    for s in feat.get("sessions", []):
+        if s.get("status") == "active":
+            if only_session is None or s.get("session_id") == only_session:
+                s["status"] = "suspended"
+                store.unregister_session(s["session_id"])
+    store.write_feature(pdir, feat["name"], feat)

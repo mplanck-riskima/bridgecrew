@@ -780,39 +780,43 @@ class ClaudePromptCog(commands.Cog):
                                 ),
                             )
 
-                        # Build compact footer: context % + daily/weekly usage + reset time
+                        # Build compact footer: context % + per-window usage + reset times
                         from core.usage_tracker import get_usage_summary, fmt_tokens
-                        reset_str = ""
+                        from datetime import datetime, timezone as _tz
+
+                        def _fmt_window_reset(ts_unix: float) -> str:
+                            dt = datetime.fromtimestamp(ts_unix, tz=_tz.utc)
+                            secs = (dt - datetime.now(_tz.utc)).total_seconds()
+                            if secs <= 0:
+                                return "now"
+                            hours = secs / 3600
+                            return f"{hours/24:.1f}d" if hours >= 24 else f"{hours:.1f}h"
+
                         usage_str = ""
                         try:
                             usage = await asyncio.to_thread(get_usage_summary)
                             cur_out = event.output_tokens or 0
-                            five_h_out = usage.five_hour.output_tokens + cur_out
-                            week_out = usage.this_week.output_tokens + cur_out
-                            usage_str = f" · 5h {fmt_tokens(five_h_out)} · week {fmt_tokens(week_out)}"
+                            rl = event.rate_limits or {}
+                            window_parts = []
+                            for label, period_out, rl_key in [
+                                ("5h", usage.five_hour.output_tokens + cur_out, "five_hour_output_tokens"),
+                                ("7d", usage.this_week.output_tokens + cur_out, "seven_day_output_tokens"),
+                            ]:
+                                rl_info = rl.get(rl_key) or {}
+                                resets_at = rl_info.get("resets_at")
+                                limit = rl_info.get("limit")
+                                if limit and limit > 0:
+                                    pct = min(period_out / limit * 100, 999)
+                                    count_str = f"{fmt_tokens(period_out)}/{fmt_tokens(limit)} ({pct:.0f}%)"
+                                else:
+                                    count_str = fmt_tokens(period_out)
+                                reset_part = f" ↺ {_fmt_window_reset(resets_at)}" if resets_at else ""
+                                window_parts.append(f"{label}: {count_str}{reset_part}")
+                            usage_str = " · " + " · ".join(window_parts)
                         except Exception:
                             pass
-                        from datetime import datetime, timezone as _tz
 
-                        def _rate_label(rtype: str) -> str:
-                            if "five_hour" in rtype:
-                                return "5h"
-                            if "seven_day" in rtype:
-                                return "7d"
-                            if "daily" in rtype:
-                                return "daily"
-                            return rtype
-
-                        reset_str = ""
-                        if event.rate_limits:
-                            reset_parts = []
-                            for rtype, resets_at in event.rate_limits.items():
-                                resets_dt = datetime.fromtimestamp(resets_at, tz=_tz.utc)
-                                reset_parts.append(f"{_rate_label(rtype)} ↺ {fmt_time_until(resets_dt)}")
-                            if reset_parts:
-                                reset_str = " · " + " · ".join(reset_parts)
-
-                        footer_line = f"*{indicator} ctx {context_pct:.1f}%{usage_str}{reset_str}*"
+                        footer_line = f"*{indicator} ctx {context_pct:.1f}%{usage_str}*"
 
                         # Session/feature line: model, feature, cumulative cost, prompt count
                         model_str = f"`{event.model}` · " if event.model else ""
@@ -1055,6 +1059,12 @@ class ClaudePromptCog(commands.Cog):
                     await _start_fs(project_dir, last_sid, feature_name)
                 else:
                     await _resume_fs(project_dir, last_sid, feature_name)
+                # Update state so active_feature_name always reflects the current feature
+                from core.state import load_project_state as _lps_init_upd, save_project_state as _sps_init_upd
+                _init_state = _lps_init_upd(project_dir)
+                _init_state["active_feature_name"] = feature_name
+                _init_state.pop("pending_feature_op", None)
+                _sps_init_upd(project_dir, _init_state)
                 # Register new features in the dashboard (start only — resume reuses existing record)
                 if action == "start":
                     _project = self.bot.project_manager.get_project_by_thread(channel.id)

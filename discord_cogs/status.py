@@ -34,14 +34,33 @@ class StatusCog(commands.Cog):
 
             project_dir = self.bot.project_manager.get_project_dir(project)
             import json as _json
+            from core.state import load_project_state as _lps_st
+            _st_state = _lps_st(project_dir)
+            _default_sid = _st_state.get("default_session_id")
             _features_dir = project_dir / ".claude" / "features"
             feature = None
-            if _features_dir.exists():
-                for _fp in _features_dir.glob("*.json"):
+            # Prefer the feature whose session matches default_session_id
+            if _default_sid and _features_dir.exists():
+                from models.feature import Feature as _Feature
+                for _fp in sorted(_features_dir.glob("*.json")):
                     try:
                         _fd = _json.loads(_fp.read_text(encoding="utf-8"))
                         if _fd.get("status") == "active":
-                            from models.feature import Feature as _Feature
+                            for _s in _fd.get("sessions", []):
+                                if _s.get("session_id") == _default_sid and _s.get("status") == "active":
+                                    feature = _Feature.from_dict(_fd["name"], _fd)
+                                    break
+                        if feature:
+                            break
+                    except Exception:
+                        pass
+            # Fallback: any active feature
+            if feature is None and _features_dir.exists():
+                from models.feature import Feature as _Feature
+                for _fp in sorted(_features_dir.glob("*.json")):
+                    try:
+                        _fd = _json.loads(_fp.read_text(encoding="utf-8"))
+                        if _fd.get("status") == "active":
                             feature = _Feature.from_dict(_fd["name"], _fd)
                             break
                     except Exception:

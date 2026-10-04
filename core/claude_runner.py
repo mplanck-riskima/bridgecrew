@@ -310,7 +310,7 @@ class ClaudeRunner:
         last_known_model: str = ""
         # Rate-limit info from rate_limit_event(s) — keyed by rateLimitType.
         # Multiple events may arrive (e.g. one daily, one weekly).
-        rate_limits: dict[str, int] = {}  # rateLimitType -> resetsAt
+        rate_limits: dict[str, dict] = {}  # rateLimitType -> {resets_at, limit, remaining}
 
         while True:
             chunk = await proc.stdout.read(4096)
@@ -355,7 +355,11 @@ class ClaudeRunner:
                     rtype = info.get("rateLimitType")
                     resets_at = info.get("resetsAt")
                     if rtype and resets_at:
-                        rate_limits[rtype] = resets_at
+                        rate_limits[rtype] = {
+                            "resets_at": resets_at,
+                            "limit": info.get("tokensLimit"),
+                            "remaining": info.get("tokensRemaining"),
+                        }
 
                 for event in self._parse_line(data, has_emitted_text, last_turn_input, rate_limits, last_known_model):
                     if event.type == "text" and event.content.strip():

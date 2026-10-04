@@ -98,16 +98,15 @@ def register_tools(mcp, store: FeatureStore) -> None:
         except ValueError as e:
             return json.dumps({"error": str(e)})
 
-        # Auto-complete any existing feature for this session
+        # Suspend any existing feature for this session
         existing = store.get_session_feature(pdir, session_id)
         if existing:
-            existing["status"] = "completed"
-            existing["completed_at"] = _now_iso()
-            for s in existing.get("sessions", []):
-                if s.get("session_id") == session_id:
-                    s["status"] = "completed"
-            store.write_feature(pdir, existing["name"], existing)
-            store.unregister_session(session_id)
+            _suspend_feature_mcp(store, pdir, existing, session_id)
+
+        # Suspend any OTHER active features on this project (single-feature workflow)
+        for _other in store.list_features(pdir):
+            if _other.get("status") == "active" and _other.get("name") != name:
+                _suspend_feature_mcp(store, pdir, _other)
 
         # Conflict check
         conflict_sid = store.get_active_session_for_feature(pdir, name)
@@ -161,9 +160,15 @@ def register_tools(mcp, store: FeatureStore) -> None:
                 return _conflict_response(store, pdir, feature_name, conflict_sid)
             _abandon_session(store, pdir, feature_name, conflict_sid)
 
+        # Suspend any OTHER active features on this project (single-feature workflow)
+        for _other in store.list_features(pdir):
+            if _other.get("status") == "active" and _other.get("name") != feature_name:
+                _suspend_feature_mcp(store, pdir, _other)
+
         now = _now_iso()
         data["status"] = "active"
         data["completed_at"] = None
+        data.pop("suspended_at", None)
         data["session_id"] = session_id
         data.setdefault("sessions", []).append(
             {"session_id": session_id, "session_start": now,
@@ -325,6 +330,18 @@ def _abandon_all_sessions(store: FeatureStore, project_dir: Path, feature_name: 
         store.unregister_session(sid)
 
     return abandoned_count
+
+
+def _suspend_feature_mcp(store: FeatureStore, project_dir, feat: dict, only_session: str | None = None) -> None:
+    """Mark a feature as suspended and unregister its active sessions."""
+    feat["status"] = "suspended"
+    feat.setdefault("suspended_at", _now_iso())
+    for s in feat.get("sessions", []):
+        if s.get("status") == "active":
+            if only_session is None or s.get("session_id") == only_session:
+                s["status"] = "suspended"
+                store.unregister_session(s["session_id"])
+    store.write_feature(project_dir, feat["name"], feat)
 
 
 def _render_summary(data: dict, summary: str) -> str:

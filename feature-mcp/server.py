@@ -12,8 +12,8 @@ from rest_api import create_api_router
 MCP_PORT = 8765
 
 
-def create_app(projects: list[str]) -> FastAPI:
-    store = FeatureStore(projects)
+def create_app(projects: list[str], config_path: Path | None = None) -> FastAPI:
+    store = FeatureStore(projects, config_path=config_path)
     log = store.startup()
     for msg in log:
         print(f"[feature-mcp] {msg}")
@@ -36,6 +36,6 @@ def create_app(projects: list[str]) -> FastAPI:
 if __name__ == "__main__":
     config_path = Path(__file__).parent / "projects.json"
     projects = json.loads(config_path.read_text())
-    app = create_app(projects)
+    app = create_app(projects, config_path=config_path)
     print(f"[feature-mcp] Starting on http://127.0.0.1:{MCP_PORT}")
     uvicorn.run(app, host="127.0.0.1", port=MCP_PORT)
