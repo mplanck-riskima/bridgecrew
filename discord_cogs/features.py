@@ -351,6 +351,63 @@ class NewFeatureModal(discord.ui.Modal, title="New Feature"):
             ))
 
 
+# ── Complete Suspended Feature UI ────────────────────────────────────────────
+
+class SuspendedFeatureSelect(discord.ui.Select):
+    """Dropdown of suspended features to pick one for completion."""
+
+    def __init__(self, features: list[dict], project_dir: Path, bot):
+        options = []
+        for f in features[:25]:
+            suspended_count = sum(1 for s in f.get("sessions", []) if s.get("status") == "suspended")
+            desc = f"suspended · {suspended_count} session(s)"
+            options.append(discord.SelectOption(label=f["name"], value=f["name"], description=desc))
+        super().__init__(placeholder="Choose a feature to complete...", options=options)
+        self._feat_map = {f["name"]: f for f in features}
+        self.project_dir = project_dir
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction):
+        name = self.values[0]
+        feat_data = self._feat_map.get(name, {})
+        sessions = feat_data.get("sessions", [])
+        last_suspended = next(
+            (s for s in reversed(sessions) if s.get("status") == "suspended"),
+            None,
+        )
+        session_id = (last_suspended or {}).get("session_id") or feat_data.get("session_id")
+        if not session_id:
+            await interaction.response.edit_message(
+                content=f"Feature `{name}` has no session history — cannot complete.", view=None
+            )
+            return
+
+        await interaction.response.edit_message(
+            content=f"Completing suspended feature **`{name}`**...", view=None
+        )
+
+        from core.mcp_client import resume_feature_session as _resume
+        ok = await _resume(self.project_dir, session_id, name)
+        if not ok:
+            await interaction.followup.send(
+                f"Failed to re-activate `{name}` in the session store. Try `/abandon-feature-sessions` first.",
+                ephemeral=True,
+            )
+            return
+
+        prompt_cog = self.bot.cogs.get("ClaudePromptCog")
+        if prompt_cog:
+            asyncio.create_task(prompt_cog.run_feature_complete_session(
+                interaction.channel, self.project_dir, name, session_id,
+            ))
+
+
+class SuspendedFeatureView(discord.ui.View):
+    def __init__(self, features: list[dict], project_dir: Path, bot):
+        super().__init__(timeout=60)
+        self.add_item(SuspendedFeatureSelect(features, project_dir, bot))
+
+
 # ── Abandon Feature Sessions UI ──────────────────────────────────────────────
 
 class AbandonSessionsSelect(discord.ui.Select):
@@ -725,6 +782,35 @@ class FeaturesCog(commands.Cog):
             "Pick a feature to clear its active sessions:",
             view=view,
             ephemeral=True,
+        )
+
+    @captains_only()
+    @app_commands.command(
+        name="complete-suspended",
+        description="Complete a suspended feature — Claude reviews the work and writes the summary",
+    )
+    async def complete_suspended(self, interaction: discord.Interaction) -> None:
+        project, project_dir = self._resolve_project(interaction)
+        if not project:
+            await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
+            return
+        if self._check_active_work(interaction.channel_id):
+            await interaction.response.send_message(
+                "Claude is actively working. Wait for the queue to clear first, or use `/clear-work`.",
+                ephemeral=True,
+            )
+            return
+
+        _feat_dicts = _list_feature_dicts(project_dir)
+        suspended = [f for f in _feat_dicts if f.get("status") == "suspended"]
+
+        if not suspended:
+            await interaction.response.send_message("No suspended features found.", ephemeral=True)
+            return
+
+        view = SuspendedFeatureView(suspended, project_dir, self.bot)
+        await interaction.response.send_message(
+            "Pick a suspended feature to complete:", view=view, ephemeral=True
         )
 
     @app_commands.command(name="list-features", description="List all features for this project")
