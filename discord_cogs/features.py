@@ -408,6 +408,54 @@ class SuspendedFeatureView(discord.ui.View):
         self.add_item(SuspendedFeatureSelect(features, project_dir, bot))
 
 
+class CompleteAllSuspendedView(discord.ui.View):
+    """Confirm button for completing all suspended features in sequence."""
+
+    def __init__(self, features: list[dict], project_dir: Path, bot):
+        super().__init__(timeout=60)
+        self._features = features
+        self.project_dir = project_dir
+        self.bot = bot
+
+    @discord.ui.button(label="Complete All", style=discord.ButtonStyle.primary)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from core.mcp_client import resume_feature_session as _resume
+
+        names = [f["name"] for f in self._features]
+        await interaction.response.edit_message(
+            content=f"Queuing completion for {len(names)} suspended feature(s): {', '.join(f'`{n}`' for n in names)}",
+            view=None,
+        )
+
+        prompt_cog = self.bot.cogs.get("ClaudePromptCog")
+        queued = 0
+        for feat_data in self._features:
+            name = feat_data["name"]
+            sessions = feat_data.get("sessions", [])
+            last_suspended = next(
+                (s for s in reversed(sessions) if s.get("status") == "suspended"), None
+            )
+            session_id = (last_suspended or {}).get("session_id") or feat_data.get("session_id")
+            if not session_id:
+                continue
+            ok = await _resume(self.project_dir, session_id, name)
+            if ok and prompt_cog:
+                asyncio.create_task(prompt_cog.run_feature_complete_session(
+                    interaction.channel, self.project_dir, name, session_id,
+                ))
+                queued += 1
+
+        if queued < len(names):
+            await interaction.followup.send(
+                f"Note: {len(names) - queued} feature(s) could not be re-activated and were skipped.",
+                ephemeral=True,
+            )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Cancelled.", view=None)
+
+
 # ── Abandon Feature Sessions UI ──────────────────────────────────────────────
 
 class AbandonSessionsSelect(discord.ui.Select):
@@ -811,6 +859,39 @@ class FeaturesCog(commands.Cog):
         view = SuspendedFeatureView(suspended, project_dir, self.bot)
         await interaction.response.send_message(
             "Pick a suspended feature to complete:", view=view, ephemeral=True
+        )
+
+    @captains_only()
+    @app_commands.command(
+        name="complete-all-suspended",
+        description="Complete every suspended feature in sequence — Claude reviews each and writes the summary",
+    )
+    async def complete_all_suspended(self, interaction: discord.Interaction) -> None:
+        project, project_dir = self._resolve_project(interaction)
+        if not project:
+            await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
+            return
+        if self._check_active_work(interaction.channel_id):
+            await interaction.response.send_message(
+                "Claude is actively working. Wait for the queue to clear first, or use `/clear-work`.",
+                ephemeral=True,
+            )
+            return
+
+        _feat_dicts = _list_feature_dicts(project_dir)
+        suspended = [f for f in _feat_dicts if f.get("status") == "suspended"]
+
+        if not suspended:
+            await interaction.response.send_message("No suspended features found.", ephemeral=True)
+            return
+
+        names = [f["name"] for f in suspended]
+        view = CompleteAllSuspendedView(suspended, project_dir, self.bot)
+        await interaction.response.send_message(
+            f"Complete **{len(suspended)}** suspended feature(s) in sequence?\n"
+            + "\n".join(f"- `{n}`" for n in names),
+            view=view,
+            ephemeral=True,
         )
 
     @app_commands.command(name="list-features", description="List all features for this project")
