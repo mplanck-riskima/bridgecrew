@@ -407,8 +407,14 @@ class ClaudeRunner:
             cost_raw = data.get("cost_usd") or data.get("total_cost_usd")
             num_turns = data.get("num_turns", 1)
             model_usage = data.get("modelUsage", {})
-            model_name = next(iter(model_usage.keys()), None) or last_known_model or None
-            usage = next(iter(model_usage.values()), {})
+            # Prefer last_known_model (actual last model from assistant messages) over
+            # the first key in modelUsage, which reflects session-start order rather
+            # than which model did most of the work in this invocation.
+            model_name = last_known_model or next(iter(model_usage.keys()), None) or None
+            # Use the usage for last_known_model if available, else fall back to first entry.
+            usage = model_usage.get(model_name, {}) if model_name else {}
+            if not usage:
+                usage = next(iter(model_usage.values()), {})
 
             log.info(
                 "Result payload: cost_usd=%s, num_turns=%s, usage=%s, all_keys=%s",

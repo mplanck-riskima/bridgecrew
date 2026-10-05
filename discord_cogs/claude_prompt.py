@@ -743,7 +743,20 @@ class ClaudePromptCog(commands.Cog):
 
                         # Accumulate cost for the session/feature (still tracked, just not shown)
                         _out_tokens = event.output_tokens or 0
-                        _cost = event.cost_usd or 0.0
+                        # event.cost_usd is the ACCUMULATED session total (running sum since
+                        # the session started), not the per-run delta.  Compute the delta by
+                        # subtracting the last reported accumulated total stored in project state.
+                        _new_accumulated = event.cost_usd or 0.0
+                        _session_cost_key = f"_session_cost_{last_session_id}" if last_session_id else None
+                        if _session_cost_key:
+                            from core.state import load_project_state, save_project_state as _sps
+                            _cost_state = load_project_state(project_dir)
+                            _prev_accumulated = float(_cost_state.get(_session_cost_key, 0.0))
+                            _cost = max(0.0, _new_accumulated - _prev_accumulated)
+                            _cost_state[_session_cost_key] = _new_accumulated
+                            _sps(project_dir, _cost_state)
+                        else:
+                            _cost = _new_accumulated
                         if feature and last_session_id:
                             from core.mcp_client import post_cost as _post_cost
                             asyncio.create_task(_post_cost(
@@ -761,17 +774,20 @@ class ClaudePromptCog(commands.Cog):
                         }
 
                         # Report cost to BridgeCrew dashboard (fire-and-forget, non-blocking)
-                        if event.cost_usd:
+                        # Use _cost (delta) not event.cost_usd (accumulated total) so each
+                        # prompt only records what it actually spent.
+                        if _cost > 0:
                             import asyncio as _asyncio
                             from core.bridgecrew_client import report_cost as _report_cost
                             _feature_bc_id = f"{project_name}:{feature.name}" if (project_name and feature) else ""
+                            _cost_capture = _cost  # capture for lambda closure
                             _asyncio.get_event_loop().run_in_executor(
                                 None,
                                 lambda: _report_cost(
                                     project_id=bridgecrew_project_id,
                                     session_id=last_session_id or "",
                                     model=event.model or "",
-                                    cost_usd=event.cost_usd,
+                                    cost_usd=_cost_capture,
                                     input_tokens=context_fill,
                                     output_tokens=event.output_tokens or 0,
                                     feature_id=_feature_bc_id,
