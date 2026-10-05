@@ -5,7 +5,7 @@
   "total_output_tokens": 378603,
   "total_cost_usd": 26.7716006,
   "prompt_count": 44,
-  "session_id": "6794c20d-abf7-483f-96ed-79704fb306b7",
+  "session_id": "f7632c72-ea20-4329-ab53-b232cb900a5c",
   "sessions": [
     {
       "session_id": "05d05bbe-475b-429f-9901-9e9c7163a462",
@@ -66,8 +66,14 @@
       "session_start": "2026-05-07T23:00:10.284188+00:00",
       "source": "cli",
       "status": "completed"
+    },
+    {
+      "session_id": "f7632c72-ea20-4329-ab53-b232cb900a5c",
+      "session_start": "2026-10-05T07:12:30.318853+00:00",
+      "source": "rest",
+      "status": "completed"
     }
   ],
   "name": "feature-stuff-on-pc",
-  "completed_at": "2026-05-07T23:00:29.547591+00:00"
+  "completed_at": "2026-10-05T07:13:53.850047+00:00"
 }
