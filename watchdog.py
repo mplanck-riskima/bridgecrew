@@ -54,11 +54,17 @@ def kill_bot_process(pid_file: str = _DEFAULT_PID_FILE) -> None:
     log.info("Killing bot process PID %d...", pid)
     try:
         if sys.platform == "win32":
-            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+            result = subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+            if result.returncode != 0:
+                log.warning(
+                    "taskkill /PID %d returned %d (may have already exited).", pid, result.returncode
+                )
+            else:
+                log.info("Bot process killed.")
         else:
             _sigkill = getattr(signal, "SIGKILL", 9)  # SIGKILL not defined on Windows
             os.kill(pid, _sigkill)
-        log.info("Bot process killed.")
+            log.info("Bot process killed.")
     except (ProcessLookupError, OSError) as exc:
         log.warning("Could not kill PID %d: %s (may have already exited).", pid, exc)
 

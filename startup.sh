@@ -93,16 +93,37 @@ else
     echo "Warning: Feature MCP start script not found at $FEATURE_MCP_SCRIPT — skipping."
 fi
 
-# ── Watchdog ──────────────────────────────────────────────────────────────────
+# ── Env + Venv (shared by watchdog and bot) ───────────────────────────────────
 if [ "$DASH_ONLY" = false ]; then
-    echo "=== Starting Watchdog ==="
-    CLAUDE_BOT_DIR="$SCRIPT_DIR/.claude-bot"
-    mkdir -p "$CLAUDE_BOT_DIR"
+    # Load env file early so the watchdog process inherits DISCORD_TOKEN etc.
+    if [ "$WITH_DASH" = true ]; then
+        ENV_FILE="$SCRIPT_DIR/.env.local"
+    else
+        ENV_FILE="$SCRIPT_DIR/.env.production"
+    fi
+
+    if [ ! -f "$ENV_FILE" ]; then
+        echo "Error: $ENV_FILE not found."
+        exit 1
+    fi
+
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+
     if [ -f "$SCRIPT_DIR/venv/Scripts/activate" ]; then
         source "$SCRIPT_DIR/venv/Scripts/activate"
     else
         source "$SCRIPT_DIR/venv/bin/activate"
     fi
+fi
+
+# ── Watchdog ──────────────────────────────────────────────────────────────────
+if [ "$DASH_ONLY" = false ]; then
+    echo "=== Starting Watchdog ==="
+    CLAUDE_BOT_DIR="$SCRIPT_DIR/.claude-bot"
+    mkdir -p "$CLAUDE_BOT_DIR"
     PYTHONUTF8=1 python "$SCRIPT_DIR/watchdog.py" &
     WATCHDOG_PID=$!
     echo "$WATCHDOG_PID" > "$CLAUDE_BOT_DIR/watchdog.pid"
@@ -126,29 +147,7 @@ fi
 # ── Discord Bot ───────────────────────────────────────────────────────────────
 if [ "$DASH_ONLY" = false ]; then
     echo "=== Starting Discord Bot ==="
-
-    if [ -f "$SCRIPT_DIR/venv/Scripts/activate" ]; then
-        source "$SCRIPT_DIR/venv/Scripts/activate"
-    else
-        source "$SCRIPT_DIR/venv/bin/activate"
-    fi
-
-    # Load env: .env.local when running with local dashboard, .env.production otherwise
-    if [ "$WITH_DASH" = true ]; then
-        ENV_FILE="$SCRIPT_DIR/.env.local"
-    else
-        ENV_FILE="$SCRIPT_DIR/.env.production"
-    fi
-
-    if [ ! -f "$ENV_FILE" ]; then
-        echo "Error: $ENV_FILE not found."
-        exit 1
-    fi
-
-    set -a
-    # shellcheck disable=SC1090
-    source "$ENV_FILE"
-    set +a
+    # Env and venv already loaded above in the shared block.
 
     while true; do
         PYTHONUTF8=1 python "$SCRIPT_DIR/bot.py" "$@"
