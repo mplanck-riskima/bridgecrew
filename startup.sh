@@ -31,6 +31,22 @@ _kill_port() {
 _teardown() {
     echo "=== Teardown: stopping existing services ==="
 
+    # Kill watchdog
+    local watchdog_pid_file="$SCRIPT_DIR/.claude-bot/watchdog.pid"
+    if [ -f "$watchdog_pid_file" ]; then
+        local wpid
+        wpid=$(cat "$watchdog_pid_file" 2>/dev/null)
+        if [ -n "$wpid" ] && [ "$wpid" != "0" ]; then
+            echo "  watchdog (PID $wpid)..."
+            if command -v taskkill >/dev/null 2>&1; then
+                taskkill //PID "$wpid" //F >/dev/null 2>&1 || true
+            else
+                kill "$wpid" 2>/dev/null || true
+            fi
+        fi
+        rm -f "$watchdog_pid_file"
+    fi
+
     echo "  feature-mcp (port 8765)..."
     _kill_port 8765
 
@@ -77,6 +93,23 @@ else
     echo "Warning: Feature MCP start script not found at $FEATURE_MCP_SCRIPT — skipping."
 fi
 
+# ── Watchdog ──────────────────────────────────────────────────────────────────
+if [ "$DASH_ONLY" = false ]; then
+    echo "=== Starting Watchdog ==="
+    CLAUDE_BOT_DIR="$SCRIPT_DIR/.claude-bot"
+    mkdir -p "$CLAUDE_BOT_DIR"
+    if [ -f "$SCRIPT_DIR/venv/Scripts/activate" ]; then
+        source "$SCRIPT_DIR/venv/Scripts/activate"
+    else
+        source "$SCRIPT_DIR/venv/bin/activate"
+    fi
+    PYTHONUTF8=1 python "$SCRIPT_DIR/watchdog.py" &
+    WATCHDOG_PID=$!
+    echo "$WATCHDOG_PID" > "$CLAUDE_BOT_DIR/watchdog.pid"
+    echo "Watchdog started (PID $WATCHDOG_PID)"
+    echo ""
+fi
+
 # ── Local Dashboard ────────────────────────────────────────────────────────────
 if [ "$WITH_DASH" = true ] || [ "$DASH_ONLY" = true ]; then
     echo "=== Starting Local Dashboard ==="
@@ -118,12 +151,16 @@ if [ "$DASH_ONLY" = false ]; then
     set +a
 
     while true; do
-        PYTHONUTF8=1 python "$SCRIPT_DIR/bot.py" "$@" || EXIT_CODE=$?
-        EXIT_CODE=${EXIT_CODE:-0}
-        if [ $EXIT_CODE -ne 42 ]; then
-            echo "Bot exited with code $EXIT_CODE."
+        PYTHONUTF8=1 python "$SCRIPT_DIR/bot.py" "$@"
+        EXIT_CODE=$?
+        if [ $EXIT_CODE -eq 0 ]; then
+            echo "Bot exited cleanly (code 0)."
             break
         fi
-        echo "Bot requested restart (exit code 42). Restarting..."
+        if [ $EXIT_CODE -eq 42 ]; then
+            echo "Bot requested restart (exit code 42). Restarting..."
+        else
+            echo "Bot exited with code $EXIT_CODE — restarting (watchdog kill or crash)..."
+        fi
     done
 fi
