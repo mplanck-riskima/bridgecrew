@@ -19,6 +19,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from core.claude_runner import ClaudeRunner
+from core.health_server import start_health_server, stop_health_server
 from core.project_manager import ProjectManager
 from core.voice_notifier import VoiceNotifier
 
@@ -100,6 +101,8 @@ class ClaudeBot(commands.Bot):
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
         log.info("Slash commands synced to guild %s", GUILD_ID)
+
+        await start_health_server(self)
 
     async def on_ready(self) -> None:
         log.info("Logged in as %s (ID: %s)", self.user, self.user.id)
@@ -183,6 +186,7 @@ class ClaudeBot(commands.Bot):
 
     async def close(self) -> None:
         log.info("Shutting down — cancelling active Claude processes...")
+        await stop_health_server()
         await self.claude_runner.cancel_all()
         await super().close()
 
@@ -213,35 +217,42 @@ def _log_login_rate_limit(exc: discord.HTTPException, attempt: int) -> None:
 
 
 def main() -> None:
-    for attempt in range(_MAX_LOGIN_RETRIES + 1):
-        current_bot = ClaudeBot()
-        try:
-            current_bot.run(DISCORD_TOKEN, log_handler=None)
-        except KeyboardInterrupt:
-            log.info("Interrupted")
-            return
-        except discord.errors.HTTPException as exc:
-            if exc.status != 429:
-                log.exception("Discord HTTP error during startup")
+    # Write PID file so the watchdog can kill this process if unhealthy.
+    _pid_file = Path(__file__).resolve().parent / ".claude-bot" / "bot.pid"
+    _pid_file.parent.mkdir(exist_ok=True)
+    _pid_file.write_text(str(os.getpid()))
+    try:
+        for attempt in range(_MAX_LOGIN_RETRIES + 1):
+            current_bot = ClaudeBot()
+            try:
+                current_bot.run(DISCORD_TOKEN, log_handler=None)
+            except KeyboardInterrupt:
+                log.info("Interrupted")
                 return
-            _log_login_rate_limit(exc, attempt)
-            if attempt < _MAX_LOGIN_RETRIES:
-                log.warning(
-                    "Waiting %.0fs before retrying login (attempt %d/%d)...",
-                    _LOGIN_RETRY_DELAY, attempt + 1, _MAX_LOGIN_RETRIES,
-                )
-                time.sleep(_LOGIN_RETRY_DELAY)
-                continue
-            log.error("Exhausted all login retry attempts (%d). Exiting.", _MAX_LOGIN_RETRIES + 1)
-            return
-        except Exception:
-            log.exception("Unexpected error during bot startup")
-            return
+            except discord.errors.HTTPException as exc:
+                if exc.status != 429:
+                    log.exception("Discord HTTP error during startup")
+                    return
+                _log_login_rate_limit(exc, attempt)
+                if attempt < _MAX_LOGIN_RETRIES:
+                    log.warning(
+                        "Waiting %.0fs before retrying login (attempt %d/%d)...",
+                        _LOGIN_RETRY_DELAY, attempt + 1, _MAX_LOGIN_RETRIES,
+                    )
+                    time.sleep(_LOGIN_RETRY_DELAY)
+                    continue
+                log.error("Exhausted all login retry attempts (%d). Exiting.", _MAX_LOGIN_RETRIES + 1)
+                return
+            except Exception:
+                log.exception("Unexpected error during bot startup")
+                return
 
-        if current_bot._restart_requested:
-            log.info("Exiting with code %d to trigger restart", RESTART_EXIT_CODE)
-            sys.exit(RESTART_EXIT_CODE)
-        return
+            if current_bot._restart_requested:
+                log.info("Exiting with code %d to trigger restart", RESTART_EXIT_CODE)
+                sys.exit(RESTART_EXIT_CODE)
+            return
+    finally:
+        _pid_file.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
