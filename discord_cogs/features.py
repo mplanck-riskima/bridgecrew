@@ -27,6 +27,141 @@ def _list_feature_dicts(project_dir: Path) -> list[dict]:
     return result
 
 
+def _fuzzy_score(query: str, name: str) -> float:
+    """Score a feature name against a search query. Higher = better match."""
+    import difflib
+    q, n = query.lower(), name.lower()
+    if not q:
+        return 1.0
+    if n.startswith(q):
+        return 1.0
+    if q in n:
+        return 0.8
+    return difflib.SequenceMatcher(None, q, n).ratio()
+
+
+# ── Repair Project Helpers ─────────────────────────────────────────────────────
+
+def _feature_snake(name: str) -> str:
+    snake = name.lower().replace("&", "and")
+    snake = re.sub(r"[-\s]+", "_", snake)
+    snake = re.sub(r"[^a-z0-9_]", "", snake)
+    snake = re.sub(r"_+", "_", snake).strip("_")
+    return snake or "unnamed"
+
+
+def _feature_path(project_dir: Path, name: str) -> Path:
+    return project_dir / ".claude" / "features" / f"{_feature_snake(name)}.json"
+
+
+def _repair_now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _write_feature_json(feat_path: Path, data: dict) -> bool:
+    import json as _json, os as _os
+    try:
+        _tmp = feat_path.with_suffix(".tmp")
+        _tmp.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+        _os.replace(_tmp, feat_path)
+        return True
+    except Exception:
+        return False
+
+
+def _scan_and_autofix_project(project_dir: Path) -> dict:
+    """Scan project state for known issues. Auto-fixes safe issues in-place.
+
+    Returns {'multiple_active': [feat_dicts], 'auto_fixed': [description_strings]}.
+    """
+    import json as _json
+
+    feat_dicts = _list_feature_dicts(project_dir)
+    state = load_project_state(project_dir)
+    state_dirty = False
+    auto_fixed = []
+
+    # Auto-fix 1: "current" placeholder session IDs in active features
+    for f in feat_dicts:
+        if f.get("status") == "active":
+            has_current = any(
+                s.get("session_id") == "current" and s.get("status") == "active"
+                for s in f.get("sessions", [])
+            )
+            if has_current:
+                feat_path = _feature_path(project_dir, f["name"])
+                if feat_path.exists():
+                    try:
+                        data = _json.loads(feat_path.read_text(encoding="utf-8"))
+                        changed = False
+                        for s in data.get("sessions", []):
+                            if s.get("session_id") == "current" and s.get("status") == "active":
+                                s["status"] = "abandoned"
+                                s["abandoned_at"] = _repair_now_iso()
+                                changed = True
+                        if data.get("session_id") == "current":
+                            data["session_id"] = None
+                            changed = True
+                        if changed and _write_feature_json(feat_path, data):
+                            auto_fixed.append(f"`{f['name']}`: cleared `\"current\"` placeholder session ID")
+                    except Exception:
+                        pass
+
+    # Auto-fix 2: feature has completed_at set but status == "active"
+    for f in feat_dicts:
+        if f.get("status") == "active" and f.get("completed_at"):
+            feat_path = _feature_path(project_dir, f["name"])
+            if feat_path.exists():
+                try:
+                    data = _json.loads(feat_path.read_text(encoding="utf-8"))
+                    data["completed_at"] = None
+                    if _write_feature_json(feat_path, data):
+                        auto_fixed.append(f"`{f['name']}`: cleared stale `completed_at` (feature is still active)")
+                except Exception:
+                    pass
+
+    # Auto-fix 3: active_feature_name in state doesn't match any real active feature
+    active_feat_name = state.get("active_feature_name")
+    if active_feat_name:
+        matching_active = any(
+            f.get("name") == active_feat_name and f.get("status") == "active"
+            for f in feat_dicts
+        )
+        if not matching_active:
+            state.pop("active_feature_name", None)
+            state.pop("pending_feature_op", None)
+            state_dirty = True
+            auto_fixed.append(f"Cleared stale `active_feature_name` from project state (was `{active_feat_name}`)")
+
+    # Auto-fix 4: stale _session_cost_* accumulators for sessions no longer in active/suspended features
+    live_session_ids: set[str] = set()
+    for f in feat_dicts:
+        if f.get("status") in ("active", "suspended"):
+            for s in f.get("sessions", []):
+                sid = s.get("session_id")
+                if sid and sid != "current":
+                    live_session_ids.add(sid)
+    stale_cost_keys = [
+        k for k in state
+        if k.startswith("_session_cost_") and k[len("_session_cost_"):] not in live_session_ids
+    ]
+    if stale_cost_keys:
+        for k in stale_cost_keys:
+            state.pop(k, None)
+        state_dirty = True
+        auto_fixed.append(f"Pruned {len(stale_cost_keys)} stale session-cost accumulator(s)")
+
+    if state_dirty:
+        save_project_state(project_dir, state)
+
+    # Re-read after file-level fixes so the multiple_active check sees fresh state
+    feat_dicts = _list_feature_dicts(project_dir)
+    active_features = [f for f in feat_dicts if f.get("status") == "active"]
+
+    return {"multiple_active": active_features, "auto_fixed": auto_fixed}
+
+
 class SubdirSelect(discord.ui.Select):
     """Dropdown for picking a subdirectory (or project root)."""
 
@@ -50,13 +185,20 @@ class SubdirSelect(discord.ui.Select):
 
         prompt_cog = self.bot.cogs.get("ClaudePromptCog")
         if prompt_cog:
-            asyncio.create_task(prompt_cog.run_feature_init_session(
+            queued = await prompt_cog.enqueue_feature_init(
                 interaction.channel,
                 self.project_dir,
                 self.feature_name,
                 "start",
                 subdir=subdir,
-            ))
+            )
+            if queued:
+                try:
+                    await interaction.edit_original_response(
+                        content=f"Queued: Starting feature **`{self.feature_name}`** in {scope} — will run when current work completes.",
+                    )
+                except discord.HTTPException:
+                    pass
 
 
 class SubdirView(discord.ui.View):
@@ -89,12 +231,19 @@ class FeatureSelect(discord.ui.Select):
 
         prompt_cog = self.bot.cogs.get("ClaudePromptCog")
         if prompt_cog:
-            asyncio.create_task(prompt_cog.run_feature_init_session(
+            queued = await prompt_cog.enqueue_feature_init(
                 interaction.channel,
                 self.project_dir,
                 name,
                 "resume",
-            ))
+            )
+            if queued:
+                try:
+                    await interaction.edit_original_response(
+                        content=f"Queued: Resuming feature **`{name}`** — will run when current work completes.",
+                    )
+                except discord.HTTPException:
+                    pass
 
 
 class FeatureView(discord.ui.View):
@@ -305,13 +454,20 @@ class FeatureForSessionSelect(discord.ui.Select):
 
         prompt_cog = self.bot.cogs.get("ClaudePromptCog")
         if prompt_cog:
-            asyncio.create_task(prompt_cog.run_feature_init_session(
+            queued = await prompt_cog.enqueue_feature_init(
                 interaction.channel,
                 self.project_dir,
                 choice,
                 "resume",
                 session_id=self.cli_session_id,
-            ))
+            )
+            if queued:
+                try:
+                    await interaction.edit_original_response(
+                        content=f"Queued: Resuming **`{choice}`** — will run when current work completes.",
+                    )
+                except discord.HTTPException:
+                    pass
 
 
 class FeatureForSessionView(discord.ui.View):
@@ -342,13 +498,20 @@ class NewFeatureModal(discord.ui.Modal, title="New Feature"):
 
         prompt_cog = self.bot.cogs.get("ClaudePromptCog")
         if prompt_cog:
-            asyncio.create_task(prompt_cog.run_feature_init_session(
+            queued = await prompt_cog.enqueue_feature_init(
                 interaction.channel,
                 self.project_dir,
                 name,
                 "start",
                 session_id=self.cli_session_id,
-            ))
+            )
+            if queued:
+                try:
+                    await interaction.edit_original_response(
+                        content=f"Queued: Starting **`{name}`** — will run when current work completes.",
+                    )
+                except discord.HTTPException:
+                    pass
 
 
 # ── Complete Suspended Feature UI ────────────────────────────────────────────
@@ -397,9 +560,16 @@ class SuspendedFeatureSelect(discord.ui.Select):
 
         prompt_cog = self.bot.cogs.get("ClaudePromptCog")
         if prompt_cog:
-            asyncio.create_task(prompt_cog.run_feature_complete_session(
+            queued = await prompt_cog.enqueue_feature_complete(
                 interaction.channel, self.project_dir, name, session_id,
-            ))
+            )
+            if queued:
+                try:
+                    await interaction.edit_original_response(
+                        content=f"Queued: Completing suspended feature **`{name}`** — will run when current work completes.",
+                    )
+                except discord.HTTPException:
+                    pass
 
 
 class SuspendedFeatureView(discord.ui.View):
@@ -440,9 +610,9 @@ class CompleteAllSuspendedView(discord.ui.View):
                 continue
             ok = await _resume(self.project_dir, session_id, name)
             if ok and prompt_cog:
-                asyncio.create_task(prompt_cog.run_feature_complete_session(
+                await prompt_cog.enqueue_feature_complete(
                     interaction.channel, self.project_dir, name, session_id,
-                ))
+                )
                 queued += 1
 
         if queued < len(names):
@@ -520,6 +690,73 @@ class AbandonSessionsConfirmView(discord.ui.View):
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content="Cancelled.", view=None)
+
+
+# ── Repair Project UI ─────────────────────────────────────────────────────────
+
+class RepairActiveFeatureSelect(discord.ui.Select):
+    """Pick which active feature to keep when multiple are active simultaneously."""
+
+    def __init__(self, active_features: list[dict], project_dir: Path, bot):
+        options = []
+        for f in active_features[:24]:
+            active_count = sum(1 for s in f.get("sessions", []) if s.get("status") == "active")
+            options.append(discord.SelectOption(
+                label=f["name"],
+                value=f["name"],
+                description=f"active · {active_count} session(s)",
+            ))
+        options.append(discord.SelectOption(
+            label="Suspend all",
+            value="__suspend_all__",
+            description="Suspend every active feature",
+        ))
+        super().__init__(placeholder="Pick a feature to keep active...", options=options)
+        self.active_features = active_features
+        self.project_dir = project_dir
+        self.bot = bot
+
+    async def callback(self, interaction: discord.Interaction):
+        chosen = self.values[0]
+        from core.mcp_client import abandon_feature_sessions as _abandon
+        import json as _json
+
+        lines = []
+        for f in self.active_features:
+            name = f["name"]
+            count = await _abandon(self.project_dir, name) or 0
+            session_word = "session" if count == 1 else "sessions"
+
+            if chosen == "__suspend_all__" or name != chosen:
+                feat_path = _feature_path(self.project_dir, name)
+                if feat_path.exists():
+                    try:
+                        data = _json.loads(feat_path.read_text(encoding="utf-8"))
+                        data["status"] = "suspended"
+                        data.setdefault("suspended_at", _repair_now_iso())
+                        _write_feature_json(feat_path, data)
+                    except Exception:
+                        pass
+                lines.append(f"- `{name}`: suspended ({count} {session_word} cleared)")
+            else:
+                lines.append(f"- `{name}`: kept active ({count} stale {session_word} cleared — resume to continue)")
+
+        if chosen == "__suspend_all__":
+            summary = f"Suspended all {len(self.active_features)} active features."
+        else:
+            others = len(self.active_features) - 1
+            summary = f"Kept `{chosen}` active, suspended {others} other(s)."
+
+        await interaction.response.edit_message(
+            content="**Repair complete.**\n" + summary + "\n" + "\n".join(lines),
+            view=None,
+        )
+
+
+class RepairActiveFeatureView(discord.ui.View):
+    def __init__(self, active_features: list[dict], project_dir: Path, bot):
+        super().__init__(timeout=60)
+        self.add_item(RepairActiveFeatureSelect(active_features, project_dir, bot))
 
 
 # ── Cog ───────────────────────────────────────────────────────────────────────
@@ -646,12 +883,6 @@ class FeaturesCog(commands.Cog):
         if not project:
             await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
             return
-        if self._check_active_work(interaction.channel_id):
-            await interaction.response.send_message(
-                "Claude is actively working. Wait for the queue to clear before switching features, or use `/clear-work` first.",
-                ephemeral=True,
-            )
-            return
 
         subdirs = self._list_subdirs(project_dir)
         if subdirs:
@@ -662,42 +893,89 @@ class FeaturesCog(commands.Cog):
                 ephemeral=True,
             )
         else:
-            # No subdirectories — start a Claude session immediately
+            # No subdirectories — enqueue or start immediately
             await interaction.response.send_message(
                 f"Starting feature **`{name}`**...",
                 ephemeral=True,
             )
             prompt_cog = self.bot.cogs.get("ClaudePromptCog")
             if prompt_cog:
-                asyncio.create_task(prompt_cog.run_feature_init_session(
+                queued = await prompt_cog.enqueue_feature_init(
                     interaction.channel,
                     project_dir,
                     name,
                     "start",
-                ))
+                )
+                if queued:
+                    try:
+                        await interaction.edit_original_response(
+                            content=f"Queued: Starting feature **`{name}`** — will run when current work completes.",
+                        )
+                    except discord.HTTPException:
+                        pass
 
     @app_commands.command(name="resume-feature", description="Resume an existing or completed feature")
+    @app_commands.describe(name="Feature name (type to search)")
     @captains_only()
-    async def resume_feature(self, interaction: discord.Interaction) -> None:
+    async def resume_feature(self, interaction: discord.Interaction, name: str) -> None:
         project, project_dir = self._resolve_project(interaction)
         if not project:
             await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
             return
-        if self._check_active_work(interaction.channel_id):
+
+        _feat_dicts = _list_feature_dicts(project_dir)
+        if not any(f.get("name") == name for f in _feat_dicts):
             await interaction.response.send_message(
-                "Claude is actively working. Wait for the queue to clear before switching features, or use `/clear-work` first.",
+                f"Feature **`{name}`** not found. Use `/list-features` to see available features.",
                 ephemeral=True,
             )
             return
 
-        _feat_dicts = _list_feature_dicts(project_dir)
-        features = [Feature.from_dict(f["name"], f) for f in _feat_dicts]
-        if not features:
-            await interaction.response.send_message("No features yet. Use `/start-feature` to create one.", ephemeral=True)
-            return
+        await interaction.response.send_message(
+            f"Resuming feature **`{name}`**...", ephemeral=True
+        )
+        prompt_cog = self.bot.cogs.get("ClaudePromptCog")
+        if prompt_cog:
+            queued = await prompt_cog.enqueue_feature_init(
+                interaction.channel, project_dir, name, "resume"
+            )
+            if queued:
+                try:
+                    await interaction.edit_original_response(
+                        content=f"Queued: Resuming feature **`{name}`** — will run when current work completes.",
+                    )
+                except discord.HTTPException:
+                    pass
 
-        view = FeatureView(features, project_dir, self.bot)
-        await interaction.response.send_message("Pick a feature to resume:", view=view, ephemeral=True)
+    @resume_feature.autocomplete("name")
+    async def resume_feature_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        project, project_dir = self._resolve_project(interaction)
+        if not project:
+            return []
+        _feat_dicts = _list_feature_dicts(project_dir)
+        STATUS_ORDER = {"active": 0, "suspended": 1, "completed": 2}
+        scored = sorted(
+            _feat_dicts,
+            key=lambda f: (
+                STATUS_ORDER.get(f.get("status", "completed"), 3),
+                -_fuzzy_score(current, f.get("name", "")),
+            ),
+        )
+        MIN_SCORE = 0.3
+        results = []
+        for f in scored:
+            feat_name = f.get("name", "")
+            score = _fuzzy_score(current, feat_name)
+            if current and score < MIN_SCORE:
+                continue
+            status = f.get("status", "?")
+            label = f"{feat_name} [{status}]"[:100]
+            results.append(app_commands.Choice(name=label, value=feat_name))
+            if len(results) >= 25:
+                break
+        return results
 
     @captains_only()
     @app_commands.command(name="complete-feature", description="Mark a feature as completed")
@@ -706,12 +984,6 @@ class FeaturesCog(commands.Cog):
         project, project_dir = self._resolve_project(interaction)
         if not project:
             await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
-            return
-        if self._check_active_work(interaction.channel_id):
-            await interaction.response.send_message(
-                "Claude is actively working. Wait for the queue to clear before completing features, or use `/clear-work` first.",
-                ephemeral=True,
-            )
             return
 
         state = load_project_state(project_dir)
@@ -743,9 +1015,16 @@ class FeaturesCog(commands.Cog):
         )
         prompt_cog = self.bot.cogs.get("ClaudePromptCog")
         if prompt_cog:
-            asyncio.create_task(prompt_cog.run_feature_complete_session(
+            queued = await prompt_cog.enqueue_feature_complete(
                 interaction.channel, project_dir, feature_name, session_id,
-            ))
+            )
+            if queued:
+                try:
+                    await interaction.edit_original_response(
+                        content=f"Queued: Completing **`{feature_name}`** — will run when current work finishes.",
+                    )
+                except discord.HTTPException:
+                    pass
 
     @captains_only()
     @app_commands.command(name="resume-session", description="Resume a CLI session from this machine in Discord")
@@ -842,12 +1121,6 @@ class FeaturesCog(commands.Cog):
         if not project:
             await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
             return
-        if self._check_active_work(interaction.channel_id):
-            await interaction.response.send_message(
-                "Claude is actively working. Wait for the queue to clear first, or use `/clear-work`.",
-                ephemeral=True,
-            )
-            return
 
         _feat_dicts = _list_feature_dicts(project_dir)
         suspended = [f for f in _feat_dicts if f.get("status") == "suspended"]
@@ -871,12 +1144,6 @@ class FeaturesCog(commands.Cog):
         if not project:
             await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
             return
-        if self._check_active_work(interaction.channel_id):
-            await interaction.response.send_message(
-                "Claude is actively working. Wait for the queue to clear first, or use `/clear-work`.",
-                ephemeral=True,
-            )
-            return
 
         _feat_dicts = _list_feature_dicts(project_dir)
         suspended = [f for f in _feat_dicts if f.get("status") == "suspended"]
@@ -893,6 +1160,45 @@ class FeaturesCog(commands.Cog):
             view=view,
             ephemeral=True,
         )
+
+    @captains_only()
+    @app_commands.command(
+        name="repair-project",
+        description="Diagnose and fix wonky feature state (stale sessions, multiple active features, etc.)",
+    )
+    async def repair_project(self, interaction: discord.Interaction) -> None:
+        project, project_dir = self._resolve_project(interaction)
+        if not project:
+            await interaction.response.send_message("Use this command inside a project thread.", ephemeral=True)
+            return
+
+        issues = _scan_and_autofix_project(project_dir)
+
+        auto_fixed_block = ""
+        if issues["auto_fixed"]:
+            auto_fixed_block = "**Auto-fixed:**\n" + "\n".join(f"- {msg}" for msg in issues["auto_fixed"]) + "\n\n"
+
+        if len(issues["multiple_active"]) > 1:
+            names = [f["name"] for f in issues["multiple_active"]]
+            view = RepairActiveFeatureView(issues["multiple_active"], project_dir, self.bot)
+            await interaction.response.send_message(
+                f"{auto_fixed_block}**Found {len(names)} features active simultaneously** — only one can be active at a time:\n"
+                + "\n".join(f"- `{n}`" for n in names)
+                + "\n\nPick which one to keep active (the rest will be suspended):",
+                view=view,
+                ephemeral=True,
+            )
+            return
+
+        if issues["auto_fixed"]:
+            await interaction.response.send_message(
+                "**Repair complete.**\n" + "\n".join(f"- {msg}" for msg in issues["auto_fixed"]),
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                "No issues found — project state looks healthy.", ephemeral=True
+            )
 
     @app_commands.command(name="list-features", description="List all features for this project")
     @captains_only()
