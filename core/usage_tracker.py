@@ -68,6 +68,7 @@ class UsagePeriod:
 class UsageSummary:
     five_hour: UsagePeriod = field(default_factory=UsagePeriod)
     today: UsagePeriod = field(default_factory=UsagePeriod)
+    seven_day: UsagePeriod = field(default_factory=UsagePeriod)
     this_week: UsagePeriod = field(default_factory=UsagePeriod)
     daily_resets_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     weekly_resets_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -96,6 +97,7 @@ def get_usage_summary(claude_dir: Path | None = None) -> UsageSummary:
 
     now = datetime.now(timezone.utc)
     five_hour_cutoff = now - timedelta(hours=5)
+    seven_day_cutoff = now - timedelta(days=7)
     today_cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
     # Weekly: start of current week (Monday)
     week_cutoff = today_cutoff - timedelta(days=today_cutoff.weekday())
@@ -171,12 +173,14 @@ def get_usage_summary(claude_dir: Path | None = None) -> UsageSummary:
     # Aggregate into periods
     for record in seen.values():
         ts = record["ts"]
-        if ts < week_cutoff:
+        if ts < seven_day_cutoff:
             continue
 
         cost = _estimate_cost(record["model"], record["input"], record["cache_read"], record["cache_write"], record["output"])
 
-        periods = [summary.this_week]
+        periods = [summary.seven_day]
+        if ts >= week_cutoff:
+            periods.append(summary.this_week)
         if ts >= today_cutoff:
             periods.append(summary.today)
         if ts >= five_hour_cutoff:
@@ -191,6 +195,25 @@ def get_usage_summary(claude_dir: Path | None = None) -> UsageSummary:
             period.request_count += 1
 
     return summary
+
+
+@dataclass
+class RateLimits:
+    five_hour_pct: float | None = None
+    seven_day_pct: float | None = None
+
+
+def get_rate_limits(claude_home: Path | None = None) -> RateLimits:
+    """Read real quota percentages written by statusline.sh after each CLI response."""
+    state_file = (claude_home or Path.home() / ".claude") / "state" / "rate_limits.json"
+    try:
+        data = json.loads(state_file.read_text(encoding="utf-8"))
+        return RateLimits(
+            five_hour_pct=data.get("five_hour", {}).get("used_percentage"),
+            seven_day_pct=data.get("seven_day", {}).get("used_percentage"),
+        )
+    except Exception:
+        return RateLimits()
 
 
 def fmt_tokens(n: int) -> str:

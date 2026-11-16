@@ -1,0 +1,21 @@
+{
+  "name": "rate-limit-from-statusline",
+  "status": "completed",
+  "session_id": "session-20261019",
+  "description": "Read real quota percentages from statusline.sh state file instead of computing from JSONL+env vars",
+  "sessions": [
+    {
+      "session_id": "session-20261019",
+      "session_start": "2026-10-19T22:18:52.910022+00:00",
+      "source": "cli",
+      "status": "completed"
+    }
+  ],
+  "milestones": [],
+  "started_at": "2026-10-19T22:18:52.910022+00:00",
+  "completed_at": "2026-10-19T22:19:27.990248+00:00",
+  "total_cost_usd": 0.0,
+  "total_input_tokens": 0,
+  "total_output_tokens": 0,
+  "prompt_count": 0
+}
