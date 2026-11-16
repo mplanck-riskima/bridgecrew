@@ -24,6 +24,10 @@ def create_app(projects: list[str], config_path: Path | None = None) -> FastAPI:
 
     app = FastAPI(title="Feature MCP")
 
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
     # Mount MCP SSE transport at /mcp
     app.mount("/mcp", mcp.sse_app())
 

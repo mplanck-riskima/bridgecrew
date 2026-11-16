@@ -30,6 +30,8 @@ logging.basicConfig(
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _DEFAULT_PID_FILE = str(_SCRIPT_DIR / ".claude-bot" / "bot.pid")
+_DEFAULT_FEATURE_MCP_PID_FILE = str(_SCRIPT_DIR / ".claude-bot" / "feature-mcp.pid")
+_FEATURE_MCP_START_SCRIPT = str(_SCRIPT_DIR / "feature-mcp" / "start.sh")
 
 
 # ── Testable helpers ──────────────────────────────────────────────────────────
@@ -69,6 +71,43 @@ def kill_bot_process(pid_file: str = _DEFAULT_PID_FILE) -> None:
         log.warning("Could not kill PID %d: %s (may have already exited).", pid, exc)
 
 
+async def check_feature_mcp_health(port: int = 8765) -> bool:
+    """Return True if feature-mcp GET /health returns 200."""
+    url = f"http://127.0.0.1:{port}/health"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                return resp.status == 200
+    except Exception as exc:
+        log.debug("Feature MCP health check failed: %s", exc)
+        return False
+
+
+def restart_feature_mcp(pid_file: str = _DEFAULT_FEATURE_MCP_PID_FILE) -> None:
+    """Kill the existing feature-mcp process (if any) and respawn start.sh."""
+    path = Path(pid_file)
+    if path.exists():
+        try:
+            pid = int(path.read_text().strip())
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+            else:
+                os.kill(pid, getattr(signal, "SIGKILL", 9))
+        except (ValueError, OSError, ProcessLookupError):
+            pass
+        path.unlink(missing_ok=True)
+
+    start_script = Path(_FEATURE_MCP_START_SCRIPT)
+    if not start_script.exists():
+        log.error("Feature MCP start script not found at %s — cannot restart.", start_script)
+        return
+
+    proc = subprocess.Popen(["bash", str(start_script)])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(proc.pid))
+    log.info("Feature MCP restarted (PID %d).", proc.pid)
+
+
 async def check_health(port: int = 8766) -> bool:
     """Return True if GET /health returns 200, False on any error or non-200."""
     url = f"http://127.0.0.1:{port}/health"
@@ -103,6 +142,7 @@ async def send_discord_notification(token: str, channel_id: str, message: str) -
 
 async def run_watchdog() -> None:
     port = int(os.getenv("HEALTH_PORT", "8766"))
+    fmcp_port = int(os.getenv("FEATURE_MCP_PORT", "8765"))
     interval = int(os.getenv("HEALTH_CHECK_INTERVAL", "600"))
     grace = int(os.getenv("HEALTH_RESTART_GRACE", "120"))
     token = os.getenv("DISCORD_TOKEN", "")
@@ -115,19 +155,34 @@ async def run_watchdog() -> None:
         )
 
     log.info(
-        "Watchdog started. Polling http://127.0.0.1:%d/health every %ds (grace %ds).",
-        port, interval, grace,
+        "Watchdog started. Polling bot :%d and feature-mcp :%d every %ds (grace %ds).",
+        port, fmcp_port, interval, grace,
     )
 
     while True:
         await asyncio.sleep(interval)
 
+        # ── Feature MCP ───────────────────────────────────────────────────────
+        fmcp_healthy = await check_feature_mcp_health(port=fmcp_port)
+        if not fmcp_healthy:
+            log.warning("Feature MCP health check FAILED — restarting.")
+            if token and channel_id:
+                await send_discord_notification(
+                    token=token,
+                    channel_id=channel_id,
+                    message="⚠️ **feature-mcp restarted** — it was unresponsive and has been automatically restarted.",
+                )
+            restart_feature_mcp()
+        else:
+            log.info("Feature MCP health check passed.")
+
+        # ── Bot ───────────────────────────────────────────────────────────────
         healthy = await check_health(port=port)
         if healthy:
-            log.info("Health check passed.")
+            log.info("Bot health check passed.")
             continue
 
-        log.warning("Health check FAILED — triggering hard reboot.")
+        log.warning("Bot health check FAILED — triggering hard reboot.")
 
         if token and channel_id:
             await send_discord_notification(

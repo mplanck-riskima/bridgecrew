@@ -33,7 +33,9 @@ async def start_health_server(bot, port: int | None = None) -> None:
     app = web.Application()
     app.router.add_get("/health", _handle_health)
 
-    _runner = web.AppRunner(app)
+    # Default shutdown_timeout is 60s; open keep-alive connections (e.g. the
+    # watchdog) would otherwise stall bot shutdown/restart for that long.
+    _runner = web.AppRunner(app, shutdown_timeout=1.0)
     await _runner.setup()
 
     site = web.TCPSite(_runner, "127.0.0.1", port)

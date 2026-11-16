@@ -31,6 +31,23 @@ _kill_port() {
 _teardown() {
     echo "=== Teardown: stopping existing services ==="
 
+    # Kill bot
+    local bot_pid_file="$SCRIPT_DIR/.claude-bot/bot.pid"
+    if [ -f "$bot_pid_file" ]; then
+        local bpid
+        bpid=$(cat "$bot_pid_file" 2>/dev/null)
+        if [ -n "$bpid" ] && [ "$bpid" != "0" ]; then
+            echo "  bot (PID $bpid)..."
+            if command -v taskkill >/dev/null 2>&1; then
+                taskkill //PID "$bpid" //F >/dev/null 2>&1 || true
+            else
+                kill "$bpid" 2>/dev/null || true
+            fi
+        fi
+        rm -f "$bot_pid_file"
+    fi
+    _kill_port 8766
+
     # Kill watchdog
     local watchdog_pid_file="$SCRIPT_DIR/.claude-bot/watchdog.pid"
     if [ -f "$watchdog_pid_file" ]; then
@@ -48,6 +65,19 @@ _teardown() {
     fi
 
     echo "  feature-mcp (port 8765)..."
+    local fmcp_pid_file="$SCRIPT_DIR/.claude-bot/feature-mcp.pid"
+    if [ -f "$fmcp_pid_file" ]; then
+        local fmcp_pid
+        fmcp_pid=$(cat "$fmcp_pid_file" 2>/dev/null)
+        if [ -n "$fmcp_pid" ] && [ "$fmcp_pid" != "0" ]; then
+            if command -v taskkill >/dev/null 2>&1; then
+                taskkill //PID "$fmcp_pid" //F >/dev/null 2>&1 || true
+            else
+                kill "$fmcp_pid" 2>/dev/null || true
+            fi
+        fi
+        rm -f "$fmcp_pid_file"
+    fi
     _kill_port 8765
 
     if docker info >/dev/null 2>&1; then
@@ -85,9 +115,20 @@ FEATURE_MCP_SCRIPT="$FEATURE_MCP_DIR/start.sh"
 
 if [ -f "$FEATURE_MCP_SCRIPT" ]; then
     echo "=== Starting Feature MCP Server ==="
+    CLAUDE_BOT_DIR="$SCRIPT_DIR/.claude-bot"
+    mkdir -p "$CLAUDE_BOT_DIR"
     bash "$FEATURE_MCP_SCRIPT" &
     FEATURE_MCP_PID=$!
+    echo "$FEATURE_MCP_PID" > "$CLAUDE_BOT_DIR/feature-mcp.pid"
     echo "Feature MCP server started (PID $FEATURE_MCP_PID, port 8765)"
+    # Wait until port 8765 is accepting connections (up to 10s)
+    for i in $(seq 1 20); do
+        if netstat -ano 2>/dev/null | grep -q ":8765[[:space:]].*LISTEN"; then
+            echo "Feature MCP server ready."
+            break
+        fi
+        sleep 0.5
+    done
     echo ""
 else
     echo "Warning: Feature MCP start script not found at $FEATURE_MCP_SCRIPT — skipping."
@@ -150,8 +191,9 @@ if [ "$DASH_ONLY" = false ]; then
     # Env and venv already loaded above in the shared block.
 
     while true; do
-        PYTHONUTF8=1 python "$SCRIPT_DIR/bot.py" "$@"
-        EXIT_CODE=$?
+        # `|| EXIT_CODE=$?` keeps `set -e` from aborting the script on non-zero exits
+        EXIT_CODE=0
+        PYTHONUTF8=1 python "$SCRIPT_DIR/bot.py" "$@" || EXIT_CODE=$?
         if [ $EXIT_CODE -eq 0 ]; then
             echo "Bot exited cleanly (code 0)."
             break

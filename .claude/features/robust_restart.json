@@ -1,0 +1,40 @@
+{
+  "name": "robust-restart",
+  "status": "suspended",
+  "session_id": "9b922016-2290-4719-92f0-67d908d74af9",
+  "description": "",
+  "sessions": [
+    {
+      "session_id": "9fa90f9a-3cb8-4ef8-aa90-c6d0994e930b",
+      "session_start": "2026-10-13T04:37:10.824715+00:00",
+      "source": "rest",
+      "status": "suspended"
+    },
+    {
+      "session_id": "b96cae34-f5bc-4aa1-b132-8896df741a81",
+      "session_start": "2026-10-16T17:28:32.698252+00:00",
+      "source": "cli",
+      "status": "completed"
+    },
+    {
+      "session_id": "9b922016-2290-4719-92f0-67d908d74af9",
+      "session_start": "2026-10-19T15:52:32.868076+00:00",
+      "source": "rest",
+      "status": "suspended"
+    },
+    {
+      "session_id": "9b922016-2290-4719-92f0-67d908d74af9",
+      "session_start": "2026-10-19T15:52:35.210200+00:00",
+      "source": "rest",
+      "status": "suspended"
+    }
+  ],
+  "milestones": [],
+  "started_at": "2026-10-13T04:37:10.824715+00:00",
+  "completed_at": null,
+  "total_cost_usd": 0.7214834999999998,
+  "total_input_tokens": 284172,
+  "total_output_tokens": 37474,
+  "prompt_count": 5,
+  "suspended_at": "2026-10-19T22:18:52.908594+00:00"
+}

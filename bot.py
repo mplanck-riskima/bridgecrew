@@ -87,7 +87,14 @@ class ClaudeBot(commands.Bot):
 
         @self.tree.error
         async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-            log.exception("Slash command error in /%s", interaction.command and interaction.command.name, exc_info=error)
+            cmd_name = interaction.command and interaction.command.name
+            original = getattr(error, "original", None)
+            if isinstance(original, discord.NotFound) and original.code == 10062:
+                # Interaction expired (>3s to ack) or was already acked by another
+                # process; there is nothing left to respond to.
+                log.warning("Interaction for /%s expired before it could be acknowledged", cmd_name)
+                return
+            log.exception("Slash command error in /%s", cmd_name, exc_info=error)
             msg = f"Command failed: {error}"
             try:
                 if interaction.response.is_done():
@@ -186,8 +193,14 @@ class ClaudeBot(commands.Bot):
 
     async def close(self) -> None:
         log.info("Shutting down — cancelling active Claude processes...")
-        await stop_health_server()
-        await self.claude_runner.cancel_all()
+        for label, coro in (
+            ("health server", stop_health_server()),
+            ("claude processes", self.claude_runner.cancel_all()),
+        ):
+            try:
+                await asyncio.wait_for(coro, timeout=10)
+            except Exception:
+                log.exception("Timed out or failed stopping %s during shutdown", label)
         await super().close()
 
 

@@ -61,7 +61,7 @@ async def restart_server() -> None:
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             await client.post(url)
-        except httpx.RemoteProtocolError:
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ReadTimeout):
             # Server exits mid-response — that's expected on restart
             pass
         except Exception as exc:
