@@ -69,6 +69,7 @@ export interface Project {
   description: string;
   status: string;
   prompt_template_id: string | null;
+  default_feature_name: string | null;
   created_at: string;
   updated_at: string;
   features?: Feature[];

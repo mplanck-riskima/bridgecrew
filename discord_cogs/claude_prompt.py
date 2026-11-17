@@ -1643,26 +1643,49 @@ class ClaudePromptCog(commands.Cog):
             from core.mcp_client import get_features as _get_feats
             _raw_feats = await _get_feats(project_dir)
             features = [Feature.from_dict(f["name"], f) for f in _raw_feats if f.get("name")]
-            view = FeatureGateView(features, project_dir, self.bot)
-            from core.discord_streamer import discord_retry
-            gate_msg = await discord_retry(message.channel.send(
-                "No active feature — pick one before I start working:",
-                view=view,
-            ))
-            self._system_run_labels[message.channel.id] = "selecting a feature"
-            try:
-                await view.select.event.wait()
-            finally:
-                self._system_run_labels.pop(message.channel.id, None)
-            feature = view.select.selected_feature
-            if not feature:
-                await gate_msg.edit(content="*Timed out — prompt cancelled.*", view=None)
-                return
-            # Feature was just selected from the gate — MCP doesn't know about this session yet.
-            # Reload state because the gate callback saved active_feature_name.
-            state = load_project_state(project_dir)
-            default_session_id = state.get("default_session_id")
-            _feature_needs_mcp_registration = True
+
+            # Check for a dashboard-configured default feature — auto-select it without showing the gate
+            _default_feat_name: str | None = None
+            _bc_project_id_for_gate = state.get("bridgecrew_project_id", "")
+            if _bc_project_id_for_gate:
+                from core.bridgecrew_client import get_project_default_feature as _get_default_feat
+                _default_feat_name = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: _get_default_feat(_bc_project_id_for_gate)
+                )
+
+            if _default_feat_name:
+                _existing_names = {f.name for f in features}
+                exists = _default_feat_name in _existing_names
+                from core.state import load_project_state as _lps_dft, save_project_state as _sps_dft
+                _dft_state = _lps_dft(project_dir)
+                _dft_state["pending_feature_op"] = {"action": "resume" if exists else "start", "name": _default_feat_name}
+                _dft_state["active_feature_name"] = _default_feat_name
+                _sps_dft(project_dir, _dft_state)
+                feature = _PendingFeature(name=_default_feat_name)
+                state = load_project_state(project_dir)
+                default_session_id = state.get("default_session_id")
+                _feature_needs_mcp_registration = True
+            else:
+                view = FeatureGateView(features, project_dir, self.bot)
+                from core.discord_streamer import discord_retry
+                gate_msg = await discord_retry(message.channel.send(
+                    "No active feature — pick one before I start working:",
+                    view=view,
+                ))
+                self._system_run_labels[message.channel.id] = "selecting a feature"
+                try:
+                    await view.select.event.wait()
+                finally:
+                    self._system_run_labels.pop(message.channel.id, None)
+                feature = view.select.selected_feature
+                if not feature:
+                    await gate_msg.edit(content="*Timed out — prompt cancelled.*", view=None)
+                    return
+                # Feature was just selected from the gate — MCP doesn't know about this session yet.
+                # Reload state because the gate callback saved active_feature_name.
+                state = load_project_state(project_dir)
+                default_session_id = state.get("default_session_id")
+                _feature_needs_mcp_registration = True
 
         # Prefer the most-recent persisted session (default_session_id) over the session_id
         # recorded in the MCP feature file — the latter can be stale when the runner returns

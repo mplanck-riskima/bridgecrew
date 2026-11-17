@@ -18,6 +18,7 @@ export default function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingPrompt, setSavingPrompt] = useState(false);
+  const [savingDefaultFeature, setSavingDefaultFeature] = useState(false);
   const [costBreakdowns, setCostBreakdowns] = useState<Record<string, FeatureCostBreakdown>>({});
   const [expandedMarkdown, setExpandedMarkdown] = useState<string | null>(null);
   const [maintainers, setMaintainers] = useState<ProjectMaintainer[]>([]);
@@ -97,6 +98,19 @@ export default function ProjectDetail() {
     }
   }
 
+  async function assignDefaultFeature(featureName: string) {
+    if (!project) return;
+    setSavingDefaultFeature(true);
+    try {
+      const updated = await api.updateProject(project.project_id, { default_feature_name: featureName || null });
+      setProject(updated);
+    } catch (e) {
+      alert(String(e));
+    } finally {
+      setSavingDefaultFeature(false);
+    }
+  }
+
 if (loading) return <div className="text-lcars-muted font-mono text-sm animate-pulse p-4">── RETRIEVING DATA ──</div>;
   if (error) return <div className="text-lcars-red font-mono text-sm p-4">{error}</div>;
   if (!project) return <div className="text-lcars-red font-mono text-sm p-4">PROJECT NOT FOUND</div>;
@@ -147,6 +161,33 @@ if (loading) return <div className="text-lcars-muted font-mono text-sm animate-p
             ))}
           </select>
           {savingPrompt && <span className="text-xs font-mono text-lcars-muted animate-pulse">SAVING...</span>}
+        </div>
+
+        {/* Default feature assignment */}
+        <div className="mt-3 flex items-center gap-3">
+          <label className="text-xs font-mono tracking-widest text-lcars-muted uppercase">Default Feature:</label>
+          <select
+            className="bg-lcars-panel border border-lcars-border text-lcars-text font-mono text-xs px-3 py-1.5 focus:outline-none focus:border-lcars-orange"
+            value={p.default_feature_name ?? ""}
+            onChange={(e) => assignDefaultFeature(e.target.value)}
+            disabled={savingDefaultFeature}
+          >
+            <option value="">None (show gate)</option>
+            {features.filter(f => f.status === "active").map((f) => (
+              <option key={f.feature_id} value={f.name}>{f.name}</option>
+            ))}
+            {features.filter(f => f.status !== "active").length > 0 && (
+              <optgroup label="Inactive">
+                {features.filter(f => f.status !== "active").map((f) => (
+                  <option key={f.feature_id} value={f.name}>{f.name} ({f.status})</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          {savingDefaultFeature && <span className="text-xs font-mono text-lcars-muted animate-pulse">SAVING...</span>}
+          {p.default_feature_name && (
+            <span className="text-xs font-mono text-lcars-cyan">auto-selects on prompt</span>
+          )}
         </div>
       </div>
 

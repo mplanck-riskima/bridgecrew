@@ -171,6 +171,24 @@ def report_activity(
         log.warning("report_activity failed: %s", exc)
 
 
+def get_project_default_feature(project_id: str) -> str | None:
+    """Return the default_feature_name configured for a project, or None."""
+    if not _enabled() or not project_id:
+        return None
+    try:
+        resp = httpx.get(
+            f"{_API_URL}/api/projects/{project_id}",
+            headers=_headers(),
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("default_feature_name") or None
+        log.warning("get_project_default_feature: HTTP %s for project %s", resp.status_code, project_id)
+    except Exception as exc:
+        log.warning("get_project_default_feature failed: %s", exc)
+    return None
+
+
 def get_projects() -> list[dict]:
     """Fetch all projects from the dashboard."""
     if not _enabled():

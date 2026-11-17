@@ -27,6 +27,7 @@ class ProjectUpdate(BaseModel):
     status: str | None = None
     prompt_template_id: str | None = None
     discord_channel_id: str | None = None
+    default_feature_name: str | None = None
 
 
 @router.get("/projects")
