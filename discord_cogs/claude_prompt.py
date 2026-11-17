@@ -647,7 +647,7 @@ class ClaudePromptCog(commands.Cog):
             await self.bot.notify_worker_done()
 
     async def _run_stream(self, *, channel, runner, prompt, project_dir, run_dir, thread_id,
-                          session_id, resume, feature, persona_content="", persona_name="",
+                          session_id, resume, feature, persona_content="", persona_name="", persona_id="",
                           workspace_context="", bridgecrew_project_id="", model=None,
                           guild=None, project_name=None,
                           show_prompt_preview: bool = False,
@@ -870,7 +870,12 @@ class ClaudePromptCog(commands.Cog):
                         session_label = f"`{_feat_label}`" if _feat_label else "session"
                         cost_str = f"${totals['total_cost_usd']:.4f} · " if totals["total_cost_usd"] else ""
                         session_id_str = f" · `{last_session_id[:8]}`" if last_session_id else ""
-                        session_line = f"*{model_str}{session_label} · {cost_str}{totals['prompt_count']} prompts{session_id_str}*"
+                        persona_str = ""
+                        if persona_name and persona_id:
+                            persona_str = f" · {persona_name} (`{persona_id[:8]}`)"
+                        elif persona_name:
+                            persona_str = f" · {persona_name}"
+                        session_line = f"*{model_str}{session_label} · {cost_str}{totals['prompt_count']} prompts{session_id_str}{persona_str}*"
 
                         await streamer.feed(
                             f"\n\n---\n"
@@ -1699,8 +1704,9 @@ class ClaudePromptCog(commands.Cog):
         from core.bridgecrew_client import get_project_prompt as _get_prompt, get_prompt_by_id as _get_prompt_by_id, report_activity as _report_activity
         if scheduled_persona_id:
             persona_content, persona_name = _get_prompt_by_id(scheduled_persona_id)
+            persona_id = scheduled_persona_id
         else:
-            persona_content, persona_name = _get_prompt(bridgecrew_project_id) if bridgecrew_project_id else ("", "")
+            persona_content, persona_name, persona_id = _get_prompt(bridgecrew_project_id) if bridgecrew_project_id else ("", "", "")
 
         loop = asyncio.get_event_loop()
 
@@ -1828,6 +1834,7 @@ class ClaudePromptCog(commands.Cog):
             feature=feature,
             persona_content=persona_content,
             persona_name=persona_name,
+            persona_id=persona_id,
             workspace_context=workspace_context,
             bridgecrew_project_id=bridgecrew_project_id,
             model=preferred_model,
@@ -1906,6 +1913,7 @@ class ClaudePromptCog(commands.Cog):
                 feature=feature,
                 persona_content=persona_content,
                 persona_name=persona_name,
+                persona_id=persona_id,
                 workspace_context=workspace_context,
                 bridgecrew_project_id=bridgecrew_project_id,
                 model=preferred_model,
