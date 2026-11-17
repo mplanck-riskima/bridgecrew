@@ -1,8 +1,5 @@
 import asyncio
-import os
-import time
 
-import httpx
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -10,40 +7,16 @@ from discord.ext import commands
 from discord_cogs import captains_only
 from core.usage_tracker import get_usage_summary, get_rate_limits, RateLimits, fmt_tokens, fmt_time_until
 
-_models_cache: list[tuple[str, str]] = []  # (id, display_name)
-_models_cache_ts: float = 0.0
-_MODELS_TTL = 3600.0  # 1 hour
-
-_FALLBACK_MODELS: list[tuple[str, str]] = [
-    ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+_MODELS: list[tuple[str, str]] = [
+    ("claude-fable-5-2", "Claude Fable 5.2"),
     ("claude-opus-5-5", "Claude Opus 5.5"),
+    ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
     ("claude-haiku-5-5", "Claude Haiku 5.5"),
-    ("claude-fable-5-1", "Claude Fable 5.1"),
-    ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
 ]
 
 
 async def _fetch_models() -> list[tuple[str, str]]:
-    global _models_cache, _models_cache_ts
-    now = time.monotonic()
-    if _models_cache and now - _models_cache_ts < _MODELS_TTL:
-        return _models_cache
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return _models_cache
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                "https://api.anthropic.com/v1/models",
-                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
-            )
-            resp.raise_for_status()
-            data = resp.json().get("data", [])
-            _models_cache = [(m["id"], m.get("display_name", m["id"])) for m in data]
-            _models_cache_ts = now
-    except Exception:
-        pass  # return stale cache on error
-    return _models_cache or _FALLBACK_MODELS
+    return _MODELS
 
 
 def _pct_str(pct: float | None) -> str:
@@ -84,8 +57,6 @@ class StatusCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    async def cog_load(self) -> None:
-        asyncio.create_task(_fetch_models())
 
     @app_commands.command(name="status", description="Show current status for this project")
     @captains_only()

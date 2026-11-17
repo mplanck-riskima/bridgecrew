@@ -7,30 +7,38 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger(__name__)
 
-# Anthropic pricing per million tokens (as of 2025)
+# Anthropic pricing per million tokens (Claude 5 family defaults)
 _PRICING: dict[str, dict[str, float]] = {
+    "fable": {
+        "input": 8.0,
+        "cache_read": 0.20,
+        "cache_write": 10.0,
+        "output": 40.0,
+    },
     "opus": {
-        "input": 15.0,
-        "cache_read": 1.50,
-        "cache_write": 18.75,
-        "output": 75.0,
+        "input": 4.0,
+        "cache_read": 0.20,
+        "cache_write": 5.0,
+        "output": 20.0,
     },
     "sonnet": {
-        "input": 3.0,
-        "cache_read": 0.30,
-        "cache_write": 3.75,
-        "output": 15.0,
+        "input": 2.0,
+        "cache_read": 0.10,
+        "cache_write": 2.50,
+        "output": 10.0,
     },
     "haiku": {
-        "input": 0.80,
-        "cache_read": 0.08,
-        "cache_write": 1.0,
-        "output": 4.0,
+        "input": 0.10,
+        "cache_read": 0.01,
+        "cache_write": 0.125,
+        "output": 0.50,
     },
 }
 
 
 def _model_tier(model_name: str) -> str:
+    if "fable" in model_name or "mythos" in model_name:
+        return "fable"
     if "opus" in model_name:
         return "opus"
     if "haiku" in model_name:

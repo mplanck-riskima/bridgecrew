@@ -1,0 +1,21 @@
+{
+  "name": "dashboard-default-feature",
+  "status": "completed",
+  "session_id": "dashboard-feature-selector",
+  "description": "Add a per-project \"default feature\" setting to the dashboard that auto-selects a feature when prompts arrive in a project channel, skipping the gate dropdown.",
+  "sessions": [
+    {
+      "session_id": "dashboard-feature-selector",
+      "session_start": "2026-11-17T03:19:59.723640+00:00",
+      "source": "cli",
+      "status": "completed"
+    }
+  ],
+  "milestones": [],
+  "started_at": "2026-11-17T03:19:59.723640+00:00",
+  "completed_at": "2026-11-17T03:21:14.941505+00:00",
+  "total_cost_usd": 0.0,
+  "total_input_tokens": 0,
+  "total_output_tokens": 0,
+  "prompt_count": 0
+}

@@ -1,6 +1,6 @@
 {
   "name": "resume-feature-improvements",
-  "status": "active",
+  "status": "suspended",
   "session_id": "1e2d3db6-395f-4a2f-9ab1-1f80a5191851",
   "description": "",
   "sessions": [
@@ -8,14 +8,15 @@
       "session_id": "1e2d3db6-395f-4a2f-9ab1-1f80a5191851",
       "session_start": "2026-11-16T01:47:25.252906+00:00",
       "source": "rest",
-      "status": "active"
+      "status": "suspended"
     }
   ],
   "milestones": [],
   "started_at": "2026-11-16T01:47:25.252906+00:00",
   "completed_at": null,
-  "total_cost_usd": 1.0784235,
-  "total_input_tokens": 284941,
-  "total_output_tokens": 32998,
-  "prompt_count": 6
+  "total_cost_usd": 1.4693337,
+  "total_input_tokens": 365367,
+  "total_output_tokens": 48190,
+  "prompt_count": 7,
+  "suspended_at": "2026-11-16T02:40:59.706998+00:00"
 }

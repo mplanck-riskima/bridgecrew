@@ -1,11 +1,11 @@
 {
   "started_at": "2026-04-03T04:06:12.956932+00:00",
-  "status": "suspended",
+  "status": "active",
   "total_input_tokens": 5347233,
   "total_output_tokens": 559020,
   "total_cost_usd": 47.60399745,
   "prompt_count": 63,
-  "session_id": "cc343707-060c-40a9-bc2a-2b43cf7edb4d",
+  "session_id": "090a3f17-a785-400a-8816-bd3c53af031d",
   "sessions": [
     {
       "session_id": "1abe0b95-2db2-47f5-8b0e-c81a359d508b",
@@ -43,9 +43,32 @@
       "session_start": "2026-10-05T07:16:39.696200+00:00",
       "source": "rest",
       "status": "suspended"
+    },
+    {
+      "session_id": "cc343707-060c-40a9-bc2a-2b43cf7edb4d",
+      "session_start": "2026-11-16T02:40:59.708373+00:00",
+      "source": "rest",
+      "status": "suspended"
+    },
+    {
+      "session_id": "8505ec85-a287-45a2-8e89-c215bab7e25c",
+      "session_start": "2026-11-16T05:40:03.806675+00:00",
+      "source": "rest",
+      "status": "suspended"
+    },
+    {
+      "session_id": "8505ec85-a287-45a2-8e89-c215bab7e25c",
+      "session_start": "2026-11-16T05:40:05.878124+00:00",
+      "source": "rest",
+      "status": "suspended"
+    },
+    {
+      "session_id": "090a3f17-a785-400a-8816-bd3c53af031d",
+      "session_start": "2026-11-17T03:21:21.218841+00:00",
+      "source": "rest",
+      "status": "active"
     }
   ],
   "name": "Bugs & Fixes",
-  "completed_at": null,
-  "suspended_at": "2026-10-13T04:37:10.823536+00:00"
+  "completed_at": null
 }
