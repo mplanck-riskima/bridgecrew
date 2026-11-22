@@ -411,7 +411,7 @@ class ClaudePromptCog(commands.Cog):
     async def on_message(self, message: discord.Message) -> None:
         # Ignore own messages unless it's a scheduled order dispatched by the dashboard
         is_self = message.author == self.bot.user
-        is_scheduled_dispatch = is_self and "[scheduled-order]" in message.content
+        is_scheduled_dispatch = is_self and "[order]" in message.content
         if is_self and not is_scheduled_dispatch:
             return
 
@@ -682,6 +682,10 @@ class ClaudePromptCog(commands.Cog):
         import datetime as _dt
         _started_at = _dt.datetime.now(_dt.timezone.utc)
 
+        effective_persona_content = persona_content
+        if persona_name and persona_content:
+            effective_persona_content = f"# Persona: {persona_name}\n\n{persona_content}"
+
         try:
             async for event in runner.run(
                 prompt=prompt,
@@ -689,7 +693,7 @@ class ClaudePromptCog(commands.Cog):
                 thread_id=thread_id,
                 session_id=session_id,
                 resume=resume,
-                persona_content=persona_content,
+                persona_content=effective_persona_content,
                 workspace_context=workspace_context,
                 model=model,
                 is_scheduled=is_scheduled,
@@ -1560,27 +1564,40 @@ class ClaudePromptCog(commands.Cog):
         project = item.project
         runner = self.bot.claude_runner
 
-        # Detect scheduled-order marker and strip it from the prompt
+        # Detect order marker and strip it from the prompt
         import re as _re
-        is_scheduled = bool(_re.search(r"\[scheduled-order\]", prompt, _re.IGNORECASE))
+        is_scheduled = bool(_re.search(r"\[order\]", prompt, _re.IGNORECASE))
         scheduled_persona_id = ""
         scheduled_project_id = ""
+        order_id = ""
+        order_feature_name = ""
         maintainer_ttl_days: int | None = None
         if is_scheduled:
             persona_match = _re.search(r"\[persona:([^\]]+)\]", prompt, _re.IGNORECASE)
             if persona_match:
-                scheduled_persona_id = persona_match.group(1).strip()
+                scheduled_persona_id = persona_match.group(1).split("|")[0].strip()
             project_id_match = _re.search(r"\[scheduled-project:([^\]]+)\]", prompt, _re.IGNORECASE)
             if project_id_match:
                 scheduled_project_id = project_id_match.group(1).strip()
+            order_id_match = _re.search(r"\[order-id:([^\]]+)\]", prompt, _re.IGNORECASE)
+            if order_id_match:
+                order_id = order_id_match.group(1).strip()
+            order_feature_match = _re.search(r"\[order-feature:([^\]]+)\]", prompt, _re.IGNORECASE)
+            if order_feature_match:
+                order_feature_name = order_feature_match.group(1).strip()
             maintainer_match = _re.search(r"\[maintainer-run:(\d+)\]", prompt, _re.IGNORECASE)
             if maintainer_match:
                 maintainer_ttl_days = int(maintainer_match.group(1))
-            prompt = _re.sub(r"\s*\[scheduled-order\]\s*", "", prompt, flags=_re.IGNORECASE)
+            prompt = _re.sub(r"\s*\[order\]\s*", "", prompt, flags=_re.IGNORECASE)
             prompt = _re.sub(r"\s*\[persona:[^\]]*\]\s*", "", prompt, flags=_re.IGNORECASE)
+            prompt = _re.sub(r"\s*\[persona-label:[^\]]*\]\s*", "", prompt, flags=_re.IGNORECASE)
             prompt = _re.sub(r"\s*\[scheduled-project:[^\]]*\]\s*", "", prompt, flags=_re.IGNORECASE)
             prompt = _re.sub(r"\s*\[maintainer-run:\d+\]\s*", "", prompt, flags=_re.IGNORECASE)
+            prompt = _re.sub(r"\s*\[order-id:[^\]]*\]\s*", "", prompt, flags=_re.IGNORECASE)
+            prompt = _re.sub(r"\s*\[order-feature:[^\]]*\]\s*", "", prompt, flags=_re.IGNORECASE)
             prompt = prompt.strip()
+            if order_id:
+                prompt += f"\n\nOrder ID (for self-cancellation): {order_id}"
 
         # Main channel queries run against the bot's own project directory
         if project is None:
@@ -1643,8 +1660,8 @@ class ClaudePromptCog(commands.Cog):
                 if feature:
                     _feature_needs_mcp_registration = True
 
-        # Gate: require a feature selection for project threads
-        if project and not feature:
+        # Gate: require a feature selection for project threads (bypass for scheduled orders)
+        if project and not feature and not is_scheduled:
             from core.mcp_client import get_features as _get_feats
             _raw_feats = await _get_feats(project_dir)
             features = [Feature.from_dict(f["name"], f) for f in _raw_feats if f.get("name")]
@@ -1691,6 +1708,23 @@ class ClaudePromptCog(commands.Cog):
                 state = load_project_state(project_dir)
                 default_session_id = state.get("default_session_id")
                 _feature_needs_mcp_registration = True
+
+        # Override feature/session when a scheduled order specifies a feature by name
+        if is_scheduled and order_feature_name and project:
+            from core.mcp_client import get_features as _get_feats_order
+            _order_feats = await _get_feats_order(project_dir)
+            _order_feat = next(
+                (f for f in _order_feats if f.get("name") == order_feature_name), None
+            )
+            if _order_feat:
+                feature = Feature.from_dict(order_feature_name, _order_feat)
+                _active_sess = next(
+                    (s.get("session_id") for s in _order_feat.get("sessions", [])
+                     if s.get("status") == "active"),
+                    _order_feat.get("session_id"),
+                )
+                if _active_sess:
+                    default_session_id = _active_sess
 
         # Prefer the most-recent persisted session (default_session_id) over the session_id
         # recorded in the MCP feature file — the latter can be stale when the runner returns

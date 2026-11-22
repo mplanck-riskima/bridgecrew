@@ -112,7 +112,11 @@ SCHEDULED_ORDER_INSTRUCTIONS = (
     "You must carry out the order fully and autonomously using your best judgment. "
     "Do NOT use [ask-user: ...] markers — no one will respond. "
     "If something is ambiguous, make a reasonable decision and proceed. "
-    "If the task cannot be completed safely without input, explain why in your response and stop."
+    "If the task cannot be completed safely without input, explain why in your response and stop. "
+    "If this prompt includes 'Order ID (for self-cancellation): <id>', you may call "
+    "delete_order(order_id='<id>') to permanently cancel this recurring order after "
+    "completing the task — do this only when the task prompt says to cancel after "
+    "completion or when you determine the order's condition is fully met."
 )
 
 STATIC_SYSTEM_PROMPT_SCHEDULED = "\n\n".join([
