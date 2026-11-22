@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from app import scheduler as sched
 from app.config import settings
 from app.middleware.user_auth import require_auth
-from app.routers import activity, auth, costs, features, maintainers, projects, prompts, schedules
+from app.routers import activity, auth, costs, features, maintainers, orders, projects, prompts
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -53,7 +53,7 @@ app.include_router(projects.router, prefix="/api", dependencies=_auth)
 app.include_router(features.router, prefix="/api", dependencies=_auth)
 app.include_router(costs.router, prefix="/api", dependencies=_auth)
 app.include_router(prompts.router, prefix="/api", dependencies=_auth)
-app.include_router(schedules.router, prefix="/api", dependencies=_auth)
+app.include_router(orders.router, prefix="/api", dependencies=_auth)
 app.include_router(maintainers.router, prefix="/api", dependencies=_auth)
 app.include_router(activity.router, prefix="/api", dependencies=_auth)
 

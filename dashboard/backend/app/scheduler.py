@@ -23,10 +23,10 @@ async def _fire_task(task_id: str) -> None:
     """Load task from DB and dispatch. Called by APScheduler."""
     from bson import ObjectId
 
-    from app.db import scheduled_tasks_col
-    from app.routers.schedules import _run_task
+    from app.db import orders_col
+    from app.routers.orders import _run_task
 
-    task = scheduled_tasks_col().find_one({"_id": ObjectId(task_id)})
+    task = orders_col().find_one({"_id": ObjectId(task_id)})
     if task is None:
         log.warning("Scheduled task %s not found in DB — skipping", task_id)
         return
@@ -65,7 +65,7 @@ def reload_schedules() -> None:
 
     Safe to call at any time — removes all existing jobs and re-adds from DB.
     """
-    from app.db import scheduled_tasks_col
+    from app.db import orders_col
 
     scheduler = get_scheduler()
 
@@ -73,7 +73,7 @@ def reload_schedules() -> None:
     for job in scheduler.get_jobs():
         job.remove()
 
-    tasks = list(scheduled_tasks_col().find({"enabled": True}))
+    tasks = list(orders_col().find({"enabled": True}))
     for task in tasks:
         task_id = str(task["_id"])
         cron_expr = task.get("cron_expr", "").strip()

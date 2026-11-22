@@ -1,4 +1,4 @@
-"""Scheduled task CRUD and dispatch endpoints."""
+"""Scheduled order CRUD and dispatch endpoints."""
 
 from __future__ import annotations
 
@@ -12,11 +12,11 @@ from pydantic import BaseModel
 
 from app import scheduler as sched
 from app.config import settings
-from app.db import scheduled_tasks_col
+from app.db import orders_col, prompt_templates_col
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(tags=["schedules"])
+router = APIRouter(tags=["orders"])
 
 
 def _serialize(doc: dict) -> dict:
@@ -24,7 +24,7 @@ def _serialize(doc: dict) -> dict:
     return doc
 
 
-class ScheduleCreate(BaseModel):
+class OrderCreate(BaseModel):
     name: str
     project_id: str = ""
     prompt: str
@@ -32,9 +32,10 @@ class ScheduleCreate(BaseModel):
     discord_channel_id: str = ""
     cron_expr: str
     enabled: bool = True
+    feature_name: str = ""
 
 
-class ScheduleUpdate(BaseModel):
+class OrderUpdate(BaseModel):
     name: str | None = None
     project_id: str | None = None
     prompt: str | None = None
@@ -42,17 +43,18 @@ class ScheduleUpdate(BaseModel):
     discord_channel_id: str | None = None
     cron_expr: str | None = None
     enabled: bool | None = None
+    feature_name: str | None = None
 
 
-@router.get("/schedules")
-def list_schedules() -> list[dict]:
-    """Return all scheduled tasks."""
-    return [_serialize(doc) for doc in scheduled_tasks_col().find()]
+@router.get("/orders")
+def list_orders() -> list[dict]:
+    """Return all scheduled orders."""
+    return [_serialize(doc) for doc in orders_col().find()]
 
 
-@router.post("/schedules", status_code=201)
-async def create_schedule(body: ScheduleCreate) -> dict:
-    """Create a new scheduled task."""
+@router.post("/orders", status_code=201)
+async def create_order(body: OrderCreate) -> dict:
+    """Create a new scheduled order."""
     doc = {
         "name": body.name,
         "project_id": body.project_id,
@@ -61,47 +63,48 @@ async def create_schedule(body: ScheduleCreate) -> dict:
         "discord_channel_id": body.discord_channel_id,
         "cron_expr": body.cron_expr,
         "enabled": body.enabled,
+        "feature_name": body.feature_name,
         "last_run": None,
         "last_status": "unknown",
     }
-    result = scheduled_tasks_col().insert_one(doc)
+    result = orders_col().insert_one(doc)
     doc["id"] = str(result.inserted_id)
     doc.pop("_id", None)
     sched.reload_schedules()
     return doc
 
 
-@router.put("/schedules/{schedule_id}")
-async def update_schedule(schedule_id: str, body: ScheduleUpdate) -> dict:
-    """Update a scheduled task."""
+@router.put("/orders/{order_id}")
+async def update_order(order_id: str, body: OrderUpdate) -> dict:
+    """Update a scheduled order."""
     try:
-        oid = ObjectId(schedule_id)
+        oid = ObjectId(order_id)
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid schedule ID")
+        raise HTTPException(status_code=400, detail="Invalid order ID")
 
     updates = body.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    result = scheduled_tasks_col().update_one({"_id": oid}, {"$set": updates})
+    result = orders_col().update_one({"_id": oid}, {"$set": updates})
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise HTTPException(status_code=404, detail="Order not found")
 
-    doc = scheduled_tasks_col().find_one({"_id": oid})
+    doc = orders_col().find_one({"_id": oid})
     sched.reload_schedules()
     return _serialize(doc)
 
 
-@router.delete("/schedules/{schedule_id}", status_code=204)
-async def delete_schedule(schedule_id: str) -> None:
-    """Delete a scheduled task."""
+@router.delete("/orders/{order_id}", status_code=204)
+async def delete_order(order_id: str) -> None:
+    """Delete a scheduled order."""
     try:
-        oid = ObjectId(schedule_id)
+        oid = ObjectId(order_id)
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid schedule ID")
-    result = scheduled_tasks_col().delete_one({"_id": oid})
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    result = orders_col().delete_one({"_id": oid})
     if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise HTTPException(status_code=404, detail="Order not found")
     sched.reload_schedules()
 
 
@@ -116,9 +119,23 @@ async def _run_task(task: dict) -> tuple[str, str]:
 
     bot_id = await _get_bot_id()
     mention = f"<@{bot_id}> " if bot_id else ""
-    persona_marker = f"\n[persona:{task['prompt_template_id']}]" if task.get("prompt_template_id") else ""
+    if task.get("prompt_template_id"):
+        tmpl = prompt_templates_col().find_one({"_id": ObjectId(task["prompt_template_id"])}, {"name": 1})
+        persona_name = (tmpl.get("name") or "").strip() if tmpl else ""
+        persona_suffix = f"|{persona_name}" if persona_name else ""
+        persona_marker = f"\n[persona:{task['prompt_template_id']}{persona_suffix}]"
+        persona_label_marker = f"\n[persona-label:{persona_name}]" if persona_name else ""
+    else:
+        persona_marker = ""
+        persona_label_marker = ""
     project_marker = f"\n[scheduled-project:{task['project_id']}]" if task.get("project_id") else ""
-    full_prompt = f"{mention}{prompt}\n\n[scheduled-order]{persona_marker}{project_marker}"
+    order_id_marker = f"\n[order-id:{str(task['_id'])}]"
+    order_feature_marker = f"\n[order-feature:{task['feature_name']}]" if task.get("feature_name") else ""
+    full_prompt = (
+        f"{mention}{prompt}\n\n[order]"
+        f"{persona_marker}{persona_label_marker}{project_marker}"
+        f"{order_id_marker}{order_feature_marker}"
+    )
 
     channel_id = task.get("discord_channel_id") or settings.DISCORD_CHANNEL_ID
     if not channel_id:
@@ -126,28 +143,27 @@ async def _run_task(task: dict) -> tuple[str, str]:
 
     status, detail = await _dispatch_to_discord(channel_id, full_prompt)
 
-    scheduled_tasks_col().update_one(
+    orders_col().update_one(
         {"_id": task["_id"]},
         {"$set": {"last_run": datetime.now(UTC), "last_status": status}},
     )
     return status, detail
 
 
-@router.post("/schedules/{schedule_id}/trigger")
-async def trigger_schedule(schedule_id: str) -> dict:
-    """Manually fire a scheduled task."""
+@router.post("/orders/{order_id}/trigger")
+async def trigger_order(order_id: str) -> dict:
+    """Manually fire a scheduled order."""
     try:
-        oid = ObjectId(schedule_id)
+        oid = ObjectId(order_id)
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid schedule ID")
+        raise HTTPException(status_code=400, detail="Invalid order ID")
 
-    task = scheduled_tasks_col().find_one({"_id": oid})
+    task = orders_col().find_one({"_id": oid})
     if task is None:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise HTTPException(status_code=404, detail="Order not found")
 
-    # Guard: return 400 for missing prompt on manual trigger (scheduler handles this gracefully via _run_task)
     if not task.get("prompt", "").strip():
-        raise HTTPException(status_code=400, detail="Schedule has no prompt configured")
+        raise HTTPException(status_code=400, detail="Order has no prompt configured")
 
     status, detail = await _run_task(task)
     channel_id = task.get("discord_channel_id") or settings.DISCORD_CHANNEL_ID or ""

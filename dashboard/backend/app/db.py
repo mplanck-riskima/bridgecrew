@@ -32,7 +32,7 @@ def prompt_templates_col() -> Collection:
     return get_db()["prompt_templates"]
 
 
-def scheduled_tasks_col() -> Collection:
+def orders_col() -> Collection:
     return get_db()["scheduled_tasks"]
 
 
