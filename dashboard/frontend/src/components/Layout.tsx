@@ -5,7 +5,7 @@ const NAV_ITEMS = [
   { to: "/",          label: "BRIDGE",    sub: "Main View"  },
   { to: "/projects",  label: "MISSIONS",  sub: "Projects"   },
   { to: "/prompts",   label: "CREW",      sub: "Personas"   },
-  { to: "/schedules", label: "ORDERS",    sub: "Schedules"  },
+  { to: "/orders",    label: "ORDERS",    sub: "Orders"     },
   { to: "/costs",     label: "RESOURCES", sub: "Costs"      },
 ];
 

@@ -35,7 +35,7 @@ export interface PromptTemplate {
   updated_at: string;
 }
 
-export interface ScheduledTask {
+export interface Order {
   id: string;
   name: string;
   project_id: string;
@@ -44,6 +44,7 @@ export interface ScheduledTask {
   discord_channel_id: string | null;
   cron_expr: string;
   enabled: boolean;
+  feature_name?: string;
   last_run: string | null;
   last_status: "dispatched" | "failed" | "skipped" | "unknown";
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { PromptTemplate, ScheduledTask } from "../lib/types";
+import type { Order, PromptTemplate } from "../lib/types";
 import CronInput from "../components/CronInput";
 import cronstrue from "cronstrue";
 
@@ -29,8 +29,8 @@ function safeDescribe(expr: string): string {
   }
 }
 
-export default function Schedules() {
-  const [schedules, setSchedules] = useState<ScheduledTask[]>([]);
+export default function Orders() {
+  const [orders, setOrders] = useState<Order[]>([]);
   const [prompts, setPrompts] = useState<PromptTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +43,7 @@ export default function Schedules() {
     discord_channel_id: "",
     cron_expr: "",
     enabled: true,
+    feature_name: "",
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -56,8 +57,8 @@ export default function Schedules() {
     try {
       setLoading(true);
       setError(null);
-      const [s, p] = await Promise.all([api.getSchedules(), api.getPrompts()]);
-      setSchedules(s);
+      const [o, p] = await Promise.all([api.getOrders(), api.getPrompts()]);
+      setOrders(o);
       setPrompts(p);
     } catch (e) {
       setError(String(e));
@@ -66,7 +67,7 @@ export default function Schedules() {
     }
   }
 
-  function startEdit(s: ScheduledTask) {
+  function startEdit(s: Order) {
     setForm({
       name: s.name,
       project_id: s.project_id ?? "",
@@ -75,6 +76,7 @@ export default function Schedules() {
       discord_channel_id: s.discord_channel_id ?? "",
       cron_expr: s.cron_expr,
       enabled: s.enabled,
+      feature_name: s.feature_name ?? "",
     });
     setEditingId(s.id);
     setCreating(false);
@@ -83,20 +85,20 @@ export default function Schedules() {
   function cancelForm() {
     setCreating(false);
     setEditingId(null);
-    setForm({ name: "", project_id: "", prompt: "", prompt_template_id: "", discord_channel_id: "", cron_expr: "", enabled: true });
+    setForm({ name: "", project_id: "", prompt: "", prompt_template_id: "", discord_channel_id: "", cron_expr: "", enabled: true, feature_name: "" });
   }
 
   async function save() {
     setSaving(true);
     try {
       if (editingId) {
-        await api.updateSchedule(editingId, form);
+        await api.updateOrder(editingId, form);
         setEditingId(null);
       } else {
-        await api.createSchedule(form);
+        await api.createOrder(form);
         setCreating(false);
       }
-      setForm({ name: "", project_id: "", prompt: "", prompt_template_id: "", discord_channel_id: "", cron_expr: "", enabled: true });
+      setForm({ name: "", project_id: "", prompt: "", prompt_template_id: "", discord_channel_id: "", cron_expr: "", enabled: true, feature_name: "" });
       await load();
     } catch (e) {
       alert(String(e));
@@ -105,19 +107,19 @@ export default function Schedules() {
     }
   }
 
-  async function toggle(s: ScheduledTask) {
+  async function toggle(s: Order) {
     try {
-      await api.updateSchedule(s.id, { enabled: !s.enabled });
+      await api.updateOrder(s.id, { enabled: !s.enabled });
       await load();
     } catch (e) {
       alert(String(e));
     }
   }
 
-  async function trigger(s: ScheduledTask) {
+  async function trigger(s: Order) {
     setTriggering(s.id);
     try {
-      const result = await api.triggerSchedule(s.id);
+      const result = await api.triggerOrder(s.id);
       alert(`Dispatched: ${result.status}`);
       await load();
     } catch (e) {
@@ -127,10 +129,10 @@ export default function Schedules() {
     }
   }
 
-  async function remove(s: ScheduledTask) {
-    if (!confirm(`Delete schedule "${s.name}"?`)) return;
+  async function remove(s: Order) {
+    if (!confirm(`Delete order "${s.name}"?`)) return;
     try {
-      await api.deleteSchedule(s.id);
+      await api.deleteOrder(s.id);
       await load();
     } catch (e) {
       alert(String(e));
@@ -165,7 +167,7 @@ export default function Schedules() {
         <div className="bg-lcars-panel border border-lcars-border">
           <div className="px-3 py-1 border-b border-lcars-border">
             <span className="text-lcars-orange text-xs font-mono tracking-[0.2em] uppercase">
-              {editingId ? "Edit Scheduled Task" : "New Scheduled Task"}
+              {editingId ? "Edit Order" : "New Order"}
             </span>
           </div>
           <div className="p-4 space-y-4">
@@ -208,6 +210,15 @@ export default function Schedules() {
                   placeholder="Leave blank to use default channel"
                 />
               </div>
+              <div>
+                <label className={labelCls}>Feature Name (optional)</label>
+                <input
+                  className={inputCls}
+                  value={form.feature_name}
+                  onChange={(e) => setForm((f) => ({ ...f, feature_name: e.target.value }))}
+                  placeholder="e.g. Bugs & Fixes"
+                />
+              </div>
             </div>
             <div>
               <label className={labelCls}>Prompt</label>
@@ -243,12 +254,12 @@ export default function Schedules() {
       )}
       {error && <div className="text-lcars-red font-mono text-sm p-4">{error}</div>}
 
-      {!loading && schedules.length === 0 && !creating && (
-        <div className="text-lcars-muted font-mono text-sm p-4">NO SCHEDULED TASKS ON RECORD</div>
+      {!loading && orders.length === 0 && !creating && (
+        <div className="text-lcars-muted font-mono text-sm p-4">NO ORDERS ON RECORD</div>
       )}
 
       <div className="space-y-3">
-        {schedules.map((s) => (
+        {orders.map((s) => (
           <div
             key={s.id}
             className={`bg-lcars-panel border border-lcars-border ${!s.enabled ? "opacity-50" : ""}`}
@@ -289,7 +300,7 @@ export default function Schedules() {
               </div>
             </div>
             <div className="p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-mono">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs font-mono">
                 <div>
                   <span className="text-lcars-muted tracking-widest">CRON</span>
                   <div className="text-lcars-amber mt-0.5">{s.cron_expr}</div>
@@ -304,6 +315,10 @@ export default function Schedules() {
                 <div>
                   <span className="text-lcars-muted tracking-widest">CHANNEL</span>
                   <div className="text-lcars-text mt-0.5">{s.discord_channel_id || "default"}</div>
+                </div>
+                <div>
+                  <span className="text-lcars-muted tracking-widest">FEATURE</span>
+                  <div className="text-lcars-text mt-0.5">{s.feature_name || "—"}</div>
                 </div>
               </div>
               {s.prompt && (

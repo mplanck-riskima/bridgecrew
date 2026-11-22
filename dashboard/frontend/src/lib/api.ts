@@ -7,12 +7,12 @@ import type {
   CostTimelineEntry,
   Feature,
   FeatureCostBreakdown,
+  Order,
   PaginatedResponse,
   PersonaDefinition,
   Project,
   ProjectMaintainer,
   PromptTemplate,
-  ScheduledTask,
 } from "./types";
 import { TOKEN_KEY } from "@/context/AuthContext";
 
@@ -68,22 +68,22 @@ export const api = {
   deletePrompt: (id: string) =>
     request<void>(`/prompts/${id}`, { method: "DELETE" }),
 
-  // Scheduled tasks
-  getSchedules: () => request<ScheduledTask[]>("/schedules"),
-  createSchedule: (data: Omit<ScheduledTask, "id" | "last_run" | "last_status">) =>
-    request<ScheduledTask>("/schedules", {
+  // Orders
+  getOrders: () => request<Order[]>("/orders"),
+  createOrder: (data: Omit<Order, "id" | "last_run" | "last_status">) =>
+    request<Order>("/orders", {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  updateSchedule: (id: string, data: Partial<ScheduledTask>) =>
-    request<ScheduledTask>(`/schedules/${id}`, {
+  updateOrder: (id: string, data: Partial<Order>) =>
+    request<Order>(`/orders/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
     }),
-  deleteSchedule: (id: string) =>
-    request<void>(`/schedules/${id}`, { method: "DELETE" }),
-  triggerSchedule: (id: string) =>
-    request<{ status: string; channel_id: string }>(`/schedules/${id}/trigger`, {
+  deleteOrder: (id: string) =>
+    request<void>(`/orders/${id}`, { method: "DELETE" }),
+  triggerOrder: (id: string) =>
+    request<{ status: string; channel_id: string }>(`/orders/${id}/trigger`, {
       method: "POST",
     }),
 

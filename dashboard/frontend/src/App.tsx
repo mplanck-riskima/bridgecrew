@@ -7,7 +7,7 @@ import Login from "./pages/Login";
 import ProjectDetail from "./pages/ProjectDetail";
 import Projects from "./pages/Projects";
 import Prompts from "./pages/Prompts";
-import Schedules from "./pages/Schedules";
+import Orders from "./pages/Orders";
 
 export default function App() {
   return (
@@ -24,7 +24,7 @@ export default function App() {
         <Route path="projects" element={<Projects />} />
         <Route path="projects/:id" element={<ProjectDetail />} />
         <Route path="prompts" element={<Prompts />} />
-        <Route path="schedules" element={<Schedules />} />
+        <Route path="orders" element={<Orders />} />
         <Route path="costs" element={<Costs />} />
       </Route>
     </Routes>
