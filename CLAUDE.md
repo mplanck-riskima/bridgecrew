@@ -60,7 +60,7 @@ The project includes a monitoring dashboard at `dashboard/` with a React fronten
 - Features: CRUD with status/project filtering
 - Costs: ingestion + breakdown/timeline analytics
 - Prompts: template CRUD (personas)
-- Schedules: cron-based task management with Discord dispatch
+- Orders: cron-based task management with Discord dispatch (renamed from Schedules)
 - Activity: ingestion + project activity feed
 
 ## Features
@@ -80,3 +80,4 @@ The project includes a monitoring dashboard at `dashboard/` with a React fronten
 - **oauth-dashboard**: Locks the monitoring dashboard behind Google OAuth with an email allowlist, issuing JWTs the React frontend injects into all API requests. See `features/oauth-dashboard.md`.
 - **orders-improvements**: Hardens the bot against Discord rate limits (429 retry/logging in the streamer, login retry with backoff) and routes scheduled orders to the right project via a `[scheduled-project:<id>]` marker. See `features/orders-improvements.md`.
 - **robust-restart**: Adds a /health endpoint, PID file, and health watchdog so startup.sh automatically relaunches a crashed or hung bot, with shutdown hardening to prevent stalls on exit. See `features/robust-restart.md`.
+- **cron-orders**: MCP tools (`list_orders`, `create_order`, `delete_order`, `list_projects`, `list_personas`) to manage scheduled orders from any Claude session; orders renamed throughout from "schedules"; orders support `feature_name` targeting and self-cancellation via `delete_order`. See `features/cron-orders.md`.
