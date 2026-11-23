@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app import scheduler as sched
 from app.db import project_maintainers_col, projects_col
-from app.routers.schedules import _dispatch_to_discord, _get_bot_id
+from app.routers.orders import _dispatch_to_discord, _get_bot_id
 
 log = logging.getLogger(__name__)
 
