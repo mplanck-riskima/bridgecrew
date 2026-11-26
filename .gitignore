@@ -21,4 +21,3 @@ test-e2e-results.log
 thread_transcript.txt
 fetch_thread_history.py
 startup-boot.log
-secrets-vault/
